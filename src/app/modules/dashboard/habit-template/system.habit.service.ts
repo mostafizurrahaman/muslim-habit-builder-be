@@ -6,6 +6,8 @@ import { IUser } from '../../user/user.interface';
 import { SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
 import { HabitTemplate } from './system.habit.model';
 import { TCreateHabitTemplate } from './system.habit.zod';
+import { deleteImageFromCloudinary } from '../../../cloudinary/deleteImageFromCloudinary';
+import { uploadToCloudinary } from '../../../cloudinary/uploadImageToCLoudinary';
 
 
 const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
@@ -142,33 +144,61 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
 };
 
 // create system habit
-const createHabitTemplateIntoDB = async (payload: TCreateHabitTemplate) => {
+const createHabitTemplateIntoDB = async (
+  payload: TCreateHabitTemplate,
+  pdfFile?: Express.Multer.File
+) => {
 
-    let groupId = null;
+  let groupId = null;
+  if (payload.group) {
+    const groupExists = await HabitTemplate.findById(payload.group).select('_id');
+    groupId = groupExists?._id || null;
+  }
 
-    if (payload.group) {
-        const groupExists = await HabitTemplate.findById(payload.group).select('_id');
-        groupId = groupExists?._id || null;
-    }
+  let parentId = null;
+  if (payload.parent) {
+    const parentExists = await HabitTemplate.findById(payload.parent).select('_id');
+    parentId = parentExists?._id || null;
+  }
 
-    const newPayload: any = {
-        ...payload,
-        group: groupId,
-    }
+  let pdfUrl: string | null = null;
 
+  if (pdfFile) {
+    const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
+    pdfUrl = uploaded.secure_url;
+  }
+
+  const newPayload: any = {
+    ...payload,
+    group: groupId,
+    parent: parentId,
+    pdfContent: pdfUrl,
+  };
+
+  try {
     const newTemplate = await HabitTemplate.create(newPayload);
+
     if (!newTemplate) {
-        throw new NotFoundError(SYSTEM_HABIT_MESSAGES.CREATION_FAILED)
+      throw new NotFoundError(SYSTEM_HABIT_MESSAGES.CREATION_FAILED);
     }
+
     return {
-        name: newTemplate.name,
-        category: newTemplate.category,
-        habitType: newTemplate.habitType,
-        supportsLocation: newTemplate.supportsLocation,
-        defaultFrequency: newTemplate.defaultFrequency,
-        group: newTemplate.group,
-        parent: newTemplate.parent,
+      name: newTemplate.name,
+      category: newTemplate.category,
+      habitType: newTemplate.habitType,
+      supportsLocation: newTemplate.supportsLocation,
+      defaultFrequency: newTemplate.defaultFrequency,
+      group: newTemplate.group,
+      parent: newTemplate.parent,
+      pdfContent: newTemplate.pdfContent,
+    };
+  } catch (error) {
+    // DB create fail hole cloudinary theke pdf delete kore dao (rollback)
+    if (pdfUrl) {
+      await deleteImageFromCloudinary(pdfUrl); // resource_type: 'raw' pass korte hobe function er vitor
     }
+    throw error;
+  }
 };
 
 

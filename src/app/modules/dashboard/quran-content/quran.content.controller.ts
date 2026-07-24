@@ -18,6 +18,7 @@ const createQuranContentIntoDb = asyncHandler(async (req: Request, res: Response
     });
 });
 
+
 const getQuranContentsIntoDb = asyncHandler(async (req: Request, res: Response) => {
     const result = await quranContentService.getQuranContents();
     sendResponse(res, {

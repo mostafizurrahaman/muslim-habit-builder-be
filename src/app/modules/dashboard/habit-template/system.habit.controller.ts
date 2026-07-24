@@ -3,16 +3,24 @@ import { StatusCodes } from "http-status-codes";
 import asyncHandler from "../../../../shared/asynchandler";
 import sendResponse from "../../../../shared/sendResponse";
 import { habitTemplateService } from "./system.habit.service";
+import { TCreateHabitTemplate } from "./system.habit.zod";
 
 
 
 
-const createHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
-    const result = await habitTemplateService.createHabitTemplateIntoDB(req.body);
+
+const  createHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const pdfFile = files?.pdf?.[0];
+
+    const payload = req.body as TCreateHabitTemplate;
+
+    const result = await habitTemplateService.createHabitTemplateIntoDB(payload, pdfFile);
+
     sendResponse(res, {
         statusCode: StatusCodes.CREATED,
         success: true,
-        message: 'Habit template created successfully',
+        message: "Habit template has been created successfully",
         data: result,
     });
 });

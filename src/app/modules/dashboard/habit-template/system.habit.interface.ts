@@ -4,10 +4,6 @@ import { FrequencyType, HabitLocation, WeekDay } from '../../user-habit/user.hab
 import { Frequency, HabitType } from './system.habit.constant';
 
 
-export interface IConnectedHabit {
-  templateHabit: Types.ObjectId;
-  order: number;
-}
 
 export interface IDefaultFrequency {
   type: FrequencyType;
@@ -32,9 +28,13 @@ export interface IHabitTemplate {
 
   parent: Types.ObjectId | null;
 
+  isParent: boolean;
+
   supportsLocation: HabitLocation;    
 
   group?: Types.ObjectId | null;
+  
+  isGroup: boolean;
 
   defaultFrequency: IDefaultFrequency;
 
@@ -42,14 +42,16 @@ export interface IHabitTemplate {
 
   level: HabitLevel;
 
-  connectedHabits?: IConnectedHabit[];
+  isConnectedObligatory: boolean;
 
   isPreBuilt: boolean;
 
   isLocked: boolean;
 
   isGuestLocked: boolean;
-
+  
+  pdfContent: string | null;
+  
   infoContent: string | null
 
   adhkarSet?: Types.ObjectId | null;  

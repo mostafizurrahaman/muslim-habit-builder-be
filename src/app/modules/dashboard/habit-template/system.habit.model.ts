@@ -101,17 +101,25 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Boolean,
       default: false
     },
+    
+    isConnectedObligatory: {
+      type: Boolean,
+      default: false
+    },
+
+    isParent: {
+      type: Boolean,
+      default: false
+    },
+    
+    isGroup: {
+      type: Boolean,
+      default: false
+    },
 
     isGuestLocked: {
       type: Boolean,
       default: true
-    },
-    connectedHabits: {
-      type: [{
-        templateHabit: { type: Schema.Types.ObjectId, ref: 'HabitTemplate', required: false },
-        order: { type: Number, required: true },
-      }],
-      default: [],
     },
 
     adhkarSet: {
@@ -127,6 +135,11 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
     },
 
     infoContent: {
+      type: String,
+      default: null
+    },
+
+     pdfContent: {
       type: String,
       default: null
     },
