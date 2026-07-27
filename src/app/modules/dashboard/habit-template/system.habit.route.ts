@@ -14,17 +14,61 @@ const habitTemplateRouter = Router();
 habitTemplateRouter.post(
     '/create',
     authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
-    uploadFile(),          // multer, memoryStorage, field name 'pdf'
+    uploadFile(),         
     validateFileSizes,
-    validateFormDataRequest(systemHabitValidationZodSchema.createHabitTemplateZod), // 'data' field ke parse+validate korbe
+    validateFormDataRequest(systemHabitValidationZodSchema.createHabitTemplateZod), 
     habitTemplateController.createHabitTemplate,
 );
-
 
 habitTemplateRouter.get(
     '/get-habits',
     authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
-    habitTemplateController.getSystemHabits,
+    habitTemplateController.getSystemHabitsForUsers,
+);
+
+habitTemplateRouter.get(
+    '/get-all-habits',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.getAllHabitsForAdmin,
+);
+
+habitTemplateRouter.patch(
+    '/update/:id',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    uploadFile(),
+    validateFileSizes,
+    validateFormDataRequest(systemHabitValidationZodSchema.updateHabitTemplateZod),
+    habitTemplateController.updateTemplateHabit,
+);
+
+habitTemplateRouter.delete(
+    '/delete/:id',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.deleteHabitTemplate,
+);
+
+habitTemplateRouter.patch(
+    '/publish/:id',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.updateDraftHabitToPublish,
+);
+
+habitTemplateRouter.get(
+    '/get-habit-details/:id',
+    authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.getHabitDetailsById,
+);
+
+habitTemplateRouter.get(
+    '/get-group-habits',
+    authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.getGroupHabits,
+);
+
+habitTemplateRouter.get(
+    '/get-parent-habits',
+    authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.getParentHabits,
 );
 
 

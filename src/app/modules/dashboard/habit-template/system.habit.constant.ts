@@ -11,6 +11,11 @@ export const SYSTEM_HABIT_MESSAGES = {
   CREATION_FAILED: 'Failed to create system habit',
 }
 
+export const HABIT_STATUS ={
+  DRAFT: 'Draft',
+  PUBLISHED: 'Published'
+}
+export type HabitStatus = (typeof HABIT_STATUS)[keyof typeof HABIT_STATUS];
 
 export const HABIT_TYPES = {
   OBLIGATORY_PRAYER: "obligatory_prayer",

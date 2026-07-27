@@ -6,10 +6,7 @@ import { habitTemplateService } from "./system.habit.service";
 import { TCreateHabitTemplate } from "./system.habit.zod";
 
 
-
-
-
-const  createHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
+const createHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     const pdfFile = files?.pdf?.[0];
 
@@ -25,7 +22,7 @@ const  createHabitTemplate = asyncHandler(async (req: Request, res: Response) =>
     });
 });
 
-const getSystemHabits = asyncHandler(async (req: Request, res: Response) => {
+const getSystemHabitsForUsers = asyncHandler(async (req: Request, res: Response) => {
     const result = await habitTemplateService.GetAllHabitsWithStatus(req.user, req.query.category as string);
     sendResponse(res, {
         statusCode: StatusCodes.OK,
@@ -35,11 +32,93 @@ const getSystemHabits = asyncHandler(async (req: Request, res: Response) => {
     });
 });
 
+const getAllHabitsForAdmin = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.getAllHabits(req.query);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit templates fetched successfully',
+        meta: result.meta,
+        data: result.data,
+    });
+});
+
+const updateDraftHabitToPublish = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.updateDraftHabitToPublish(req.params.id as string);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit template has been published successfully',
+        data: result,
+    });
+});
+
+const getHabitDetailsById = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.getHabitTemplateById(req.params.id as string);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit template fetched successfully',
+        data: result,
+    });
+});
+
+const deleteHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.deleteSystemHabit(req.params.id as string);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit template deleted successfully',
+        data: result,
+    });
+});
+
+const getGroupHabits = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.getGroupHabits();
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Group habits fetched successfully',
+        data: result,
+    });
+});
+
+const updateTemplateHabit = asyncHandler(async (req: Request, res: Response) => {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const pdfFile = files?.pdf?.[0];
+
+    const result = await habitTemplateService.updateSystemHabit(req.params.id as string, req.body, pdfFile);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit template updated successfully',
+        data: result,
+    });
+});
+
+const getParentHabits = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.getParentHabits();
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Parent habits fetched successfully',
+        data: result,
+    });
+});
+
 
 export const habitTemplateController = {
     createHabitTemplate,
-    getSystemHabits
+    getSystemHabitsForUsers,
+    getAllHabitsForAdmin,
+    getGroupHabits,
+    getParentHabits,
+    getHabitDetailsById,
+    updateDraftHabitToPublish,
+    updateTemplateHabit,
+    deleteHabitTemplate,
 };
+
 
 /*
 const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {

@@ -437,73 +437,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
             }
         }
 
-        if (template.connectedHabits?.length) {
-
-            for (let i = 0; i < newHabits.length; i++) {
-
-                const childUserHabit = newHabits[i];        // e.g. Fajr UserHabit
-
-                const connectedHabitIds: { userHabit: Types.ObjectId; order: number }[] = [];
-
-                for (const ch of template.connectedHabits) {
-                    const connectedTemplate = await HabitTemplate.findById(ch.templateHabit).lean();
-                    console.log({ connectedTemplate })
-                    if (!connectedTemplate || !connectedTemplate.isActive) continue;
-
-
-                    // AdhkarAfterPrayer(Fajr) ≠ AdhkarAfterPrayer(Dhuhr)
-                    let connectedUserHabit = await UserHabit.findOne({
-                        user: userId,
-                        template: ch.templateHabit,
-                        isActive: true,
-                    }).lean();
-
-                    console.log({ connectedUserHabit })
-                    if (!connectedUserHabit) {
-                        // isPrayerLocked check
-                        if (connectedTemplate.isPrayerLocked) {
-                            const prayerActive = await UserHabit.exists({
-                                user: userId,
-                                isActive: true,
-                            });
-                            if (!prayerActive) continue;
-                        }
-
-                        connectedUserHabit = await UserHabit.create(
-                            buildHabitPayload(userId, connectedTemplate) as any,
-                        );
-
-                        console.log({ connectedUserHabit })
-                        await HabitLog.create({
-                            user: userId,
-                            userHabit: connectedUserHabit._id,
-                            date: String(date),
-                            status: 'Pending',
-                        });
-                    }
-
-                    const currentFreshHabit = await UserHabit.findById(childUserHabit._id).lean();
-                    const currentConnected = currentFreshHabit?.connectedHabits || [];
-                    const lastOrder = currentConnected[currentConnected.length - 1]?.order ?? 0;
-
-
-                    connectedHabitIds.push({
-                        userHabit: connectedUserHabit._id,
-                        order: lastOrder ? lastOrder + 1 : 1,
-                    });
-                }
-
-                console.log({ childUserHabit, connectedHabitIds });
-
-                // Update child UserHabit connectedHabits
-                if (connectedHabitIds.length) {
-                    await UserHabit.findByIdAndUpdate(childUserHabit._id, {
-                        $push: { connectedHabits: { $each: connectedHabitIds } },
-                    });
-                }
-            }
-        }
-
         return {
             added: newHabits.map(h => ({ _id: h._id, name: h.name })),
             reactivated: toReactivate.map(id => ({ _id: id })),
@@ -536,6 +469,18 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
                 throw new BadRequestError(
                     'Activate the required habit first to unlock this habit.',
                 );
+            }
+        }
+
+        if (template.isConnectedObligatory) {
+
+            const connectedTempaltes = await UserHabit.find({
+                user: userId,
+                habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+            });
+
+            for (const connectedTemplate of connectedTempaltes) {
+                await connectToParent(userId, connectedTemplate._id, existingHabit._id);
             }
         }
 
@@ -602,6 +547,17 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
         await connectToParent(userId, template.parent, newHabit._id);
     }
 
+    if (template.isConnectedObligatory) {
+
+        const connectedTempaltes = await UserHabit.find({
+            user: userId,
+            habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+        });
+
+        for (const connectedTemplate of connectedTempaltes) {
+            await connectToParent(userId, connectedTemplate._id, newHabit._id);
+        }
+    }
     return { added: [{ _id: newHabit._id, name: newHabit.name }], skipped: null };
 };
 
@@ -613,6 +569,7 @@ const STATUS_ORDER: Record<string, number> = {
     Skipped: 2,
 };
 
+// get today habits
 const getTodayHabits = async (user: IUser, category?: string) => {
     const userId = user._id as Types.ObjectId;
     const dateStr = buildDateBasedOnTimeZone(user.timezone as string);
@@ -777,6 +734,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             category: h.category,
             habitType: h.habitType,
             infoContent: h.infoContent,
+            pdfContent: h.pdfContent,
             customDetails: h.customDetails,
             adhkarSet: h.adhkarSet,
             quranContent: h.quranContent,
@@ -1238,24 +1196,24 @@ const skippedHabit = async (user: IUser, habitId: string) => {
 
 // get content
 const getDynamicHabitContent = async (user: IUser, contentId: string) => {
-    
+
     // 1. Check whether the content is Quran data
     const quranData = await QuranContent.findOne({ _id: contentId, isDeleted: false }).lean();
-    
+
     if (quranData) {
         return quranData;
     }
-   
+
     // 2. Check whether the content is an Adhkar set before continuing
     const adhkarData = await AdhkarSet.findOne({ _id: contentId, isDeleted: false }).lean();
-    
+
     if (adhkarData) {
         return adhkarData;
     }
-    
+
     // 3. Standard error logging fallback for unmatched content queries
     console.log("Mongoose registered collection names:", mongoose.connection.modelNames());
-    
+
     throw new NotFoundError('Content details not found in either Quran or Adhkar records');
 };
 

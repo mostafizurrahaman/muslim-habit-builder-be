@@ -40,7 +40,8 @@ export interface IUserHabit {
   startDate: Date;
   showOnTodayScreen: boolean;
   targetType?: TargetType;
-  infoContent: string | null
+  infoContent: string | null;
+  pdfContent: string | null;
   adhkarSet?: Types.ObjectId | null;  // ref: adhkar_sets
   quranContent?: Types.ObjectId | null;
   isLocked: boolean;

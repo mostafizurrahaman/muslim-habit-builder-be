@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { AllowedConnectedPrayer, ConnectedPrayer, HabitCategory, HabitLevel } from '../../../../interfaces';
 import { FrequencyType, HabitLocation, WeekDay } from '../../user-habit/user.habit.constant';
-import { Frequency, HabitType } from './system.habit.constant';
+import { Frequency, HabitStatus, HabitType } from './system.habit.constant';
 
 
 
@@ -49,14 +49,18 @@ export interface IHabitTemplate {
   isLocked: boolean;
 
   isGuestLocked: boolean;
+
+  isNew: boolean;
   
   pdfContent: string | null;
-  
+
   infoContent: string | null
 
   adhkarSet?: Types.ObjectId | null;  
 
   quranContent?: Types.ObjectId | null;
+
+  status: HabitStatus;
 
   isActive: boolean;
   

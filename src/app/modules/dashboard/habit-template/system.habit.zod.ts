@@ -99,7 +99,7 @@ const createHabitTemplateZod = z
       .optional()
       .default([]),
 
-    isPrayerLocked: z.boolean().optional().default(false),
+    isPrayerLocked: z.coerce.boolean().optional().default(false),
 
     supportsLocation: z
       .enum(Object.values(HABIT_LOCATIONS) as [string, ...string[]], {
@@ -124,7 +124,7 @@ const createHabitTemplateZod = z
       .optional()
       .default(null),
 
-    isParent: z.boolean().optional().default(false),
+    isParent: z.coerce.boolean().optional().default(false),
 
     group: z
       .string({ error: 'Group ID must be a string' })
@@ -132,8 +132,10 @@ const createHabitTemplateZod = z
       .nullable()
       .optional(),
 
-    isGroup: z.boolean().optional().default(false),
+    isGroup: z.coerce.boolean().optional().default(false),
 
+    isNew: z.coerce.boolean().optional().default(false),
+    
     defaultFrequency: frequencyZodSchema,
 
     allowedFrequencies: z
@@ -154,11 +156,11 @@ const createHabitTemplateZod = z
       },
     }),
 
-    isConnectedObligatory: z.boolean().optional().default(false),
+    isConnectedObligatory: z.coerce.boolean().optional().default(false),
 
-    isLocked: z.boolean().optional().default(false),
+    isLocked: z.coerce.boolean().optional().default(false),
 
-    isGuestLocked: z.boolean().optional().default(false),
+    isGuestLocked: z.coerce.boolean().optional().default(false),
 
     infoContent: z
       .string()
@@ -186,16 +188,135 @@ const createHabitTemplateZod = z
         message: 'Connected prayer is required when category is prayer',
       })
     }
+
+    if(data.isGroup && data.isParent){
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parent'],
+        message: 'Group habit cannot be a parent habit. Please set isParent to false.',
+      })
+    }
   })
 
-/*
 
-export interface IInfoContent {
-    title?:     string  
-    text:       string  
-    reference?: string   
-}
-*/
+  // update habit template zod
+
+const updateHabitTemplateZod = z
+  .object({
+    name: z
+      .string({
+        error: (issue) => {
+          if (issue.input === undefined) return 'Name is required'
+          if (typeof issue.input !== 'string') return 'Name must be a string'
+          return 'Invalid name format'
+        },
+      })
+      .min(1, 'Name cannot be empty')
+      .max(100, 'Name cannot exceed 100 characters').optional(),
+
+    category: z.enum(Object.values(HABIT_CATEGORIES) as [string, ...string[]], {
+      error: (issue) => {
+        if (issue.input === undefined) return 'Category is required'
+        return `Invalid category. Must be one of: ${Object.values(HABIT_CATEGORIES).join(', ')}`
+      },
+    }).optional(),
+
+    connectedPrayer: z
+      .enum(Object.values(CONNECTED_PRAYERS) as [string, ...string[]], {
+        error: (issue) => {
+          if (issue.input === undefined) return 'Connected prayer is required'
+          return `Invalid connected prayer. Must be one of: Fajr, Dhuhr, Asr, Maghrib, Isha`
+        },
+      })
+      .optional(),
+
+    allowConnectedPrayers: z
+      .array(z.enum(Object.values(CONNECTED_PRAYERS) as [string, ...string[]]))
+      .optional(),
+
+    isPrayerLocked: z.coerce.boolean().optional().default(false),
+
+    supportsLocation: z
+      .enum(Object.values(HABIT_LOCATIONS) as [string, ...string[]], {
+        error: (issue) => {
+          if (issue.input === undefined) return 'Support location is required'
+          return `Invalid location. Must be one of: ${Object.values(HABIT_LOCATIONS).join(', ')}`
+        },
+      }).optional(),
+
+    habitType: z.enum(Object.values(HABIT_TYPES) as [string, ...string[]], {
+      error: (issue) => {
+        if (issue.input === undefined) return 'Habit type is required'
+        return `Invalid habit type. Must be one of: ${Object.values(HABIT_TYPES).join(', ')}`
+      },
+    }).optional(),
+
+    parent: z
+      .string({ error: 'Parent ID must be a string' })
+      .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .optional(),
+  
+
+    isParent: z.coerce.boolean().optional(),
+
+    group: z
+      .string({ error: 'Group ID must be a string' })
+      .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .optional(),
+
+    isGroup: z.coerce.boolean().optional(),
+
+    defaultFrequency: frequencyZodSchema,
+
+    allowedFrequencies: z
+      .array(
+        z.enum(Object.values(FREQUENCY_TYPES) as [string, ...string[]], {
+          error: (issue) => {
+            if (!Array.isArray(issue.input)) return 'Allowed frequencies must be an array'
+            return `Invalid frequency in allowed frequencies. Must be one of: ${Object.values(FREQUENCY_TYPES).join(', ')}`
+          },
+        })
+      )
+      .min(1, 'At least one allowed frequency must be selected').optional(),
+
+    level: z.enum(Object.values(HABIT_LEVELS) as [string, ...string[]], {
+      error: (issue) => {
+        if (issue.input === undefined) return 'Level is required'
+        return `Invalid level. Must be one of: ${Object.values(HABIT_LEVELS).join(', ')}`
+      },
+    }).optional(),
+
+    isConnectedObligatory: z.coerce.boolean().optional(),
+
+    isLocked: z.coerce.boolean().optional(),
+
+    isNew: z.coerce.boolean().optional(),
+
+    isGuestLocked: z.coerce.boolean().optional(),
+
+    infoContent: z
+      .string()
+      .min(20, 'Info content must be at least 20 characters long')
+      .optional(),
+
+    adhkarSet: z
+      .string({ error: 'Adhkar Set ID must be a string' })
+      .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .optional(),
+
+    quranContent: z
+      .string({ error: 'Quran Content ID must be a string' })
+      .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+       if(Object.keys(data).length === 0){
+        ctx.addIssue({
+          code: 'custom',
+          message: 'At least one field must be provided for update',
+        })
+       }
+  })
 
 
 export const getSystemHabitsZod = z.object({
@@ -211,11 +332,12 @@ export const getSystemHabitsZod = z.object({
 
 export type TCreateHabitTemplate = z.infer<typeof createHabitTemplateZod>
 export type TGetSystemHabitsQuery = z.infer<typeof getSystemHabitsZod>['query']
-
+export type TUpdateHabitTemplate = z.infer<typeof updateHabitTemplateZod>
 
 const systemHabitValidationZodSchema = {
   createHabitTemplateZod,
-  getSystemHabitsZod
+  getSystemHabitsZod,
+  updateHabitTemplateZod
 };
 
 

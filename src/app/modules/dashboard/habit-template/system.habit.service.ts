@@ -1,13 +1,13 @@
 import { Types } from 'mongoose';
-import { NotFoundError } from '../../../errors/request/apiError';
+import { deleteImageFromCloudinary } from '../../../cloudinary/deleteImageFromCloudinary';
+import { uploadToCloudinary } from '../../../cloudinary/uploadImageToCLoudinary';
+import { BadRequestError, NotFoundError } from '../../../errors/request/apiError';
 import { UserHabit } from '../../user-habit/user.habit.model';
 import { USER_ROLE } from '../../user/user.constant';
 import { IUser } from '../../user/user.interface';
 import { SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
 import { HabitTemplate } from './system.habit.model';
-import { TCreateHabitTemplate } from './system.habit.zod';
-import { deleteImageFromCloudinary } from '../../../cloudinary/deleteImageFromCloudinary';
-import { uploadToCloudinary } from '../../../cloudinary/uploadImageToCLoudinary';
+import { TCreateHabitTemplate, TUpdateHabitTemplate } from './system.habit.zod';
 
 
 const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
@@ -145,78 +145,195 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
 
 // create system habit
 const createHabitTemplateIntoDB = async (
-  payload: TCreateHabitTemplate,
-  pdfFile?: Express.Multer.File
+    payload: TCreateHabitTemplate,
+    pdfFile?: Express.Multer.File
 ) => {
 
-  let groupId = null;
-  if (payload.group) {
-    const groupExists = await HabitTemplate.findById(payload.group).select('_id');
-    groupId = groupExists?._id || null;
-  }
-
-  let parentId = null;
-  if (payload.parent) {
-    const parentExists = await HabitTemplate.findById(payload.parent).select('_id');
-    parentId = parentExists?._id || null;
-  }
-
-  let pdfUrl: string | null = null;
-
-  if (pdfFile) {
-    const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
-    pdfUrl = uploaded.secure_url;
-  }
-
-  const newPayload: any = {
-    ...payload,
-    group: groupId,
-    parent: parentId,
-    pdfContent: pdfUrl,
-  };
-
-  try {
-    const newTemplate = await HabitTemplate.create(newPayload);
-
-    if (!newTemplate) {
-      throw new NotFoundError(SYSTEM_HABIT_MESSAGES.CREATION_FAILED);
+    let groupId = null;
+    if (payload.group) {
+        const groupExists = await HabitTemplate.findById(payload.group).select('_id');
+        groupId = groupExists?._id || null;
     }
 
-    return {
-      name: newTemplate.name,
-      category: newTemplate.category,
-      habitType: newTemplate.habitType,
-      supportsLocation: newTemplate.supportsLocation,
-      defaultFrequency: newTemplate.defaultFrequency,
-      group: newTemplate.group,
-      parent: newTemplate.parent,
-      pdfContent: newTemplate.pdfContent,
+    let parentId = null;
+    if (payload.parent) {
+        const parentExists = await HabitTemplate.findById(payload.parent).select('_id');
+        parentId = parentExists?._id || null;
+    }
+
+    let pdfUrl: string | null = null;
+
+    if (pdfFile) {
+        const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
+        pdfUrl = uploaded.secure_url;
+    }
+
+    const newPayload: any = {
+        ...payload,
+        group: groupId,
+        parent: parentId,
+        pdfContent: pdfUrl,
     };
-  } catch (error) {
-    // DB create fail hole cloudinary theke pdf delete kore dao (rollback)
-    if (pdfUrl) {
-      await deleteImageFromCloudinary(pdfUrl); // resource_type: 'raw' pass korte hobe function er vitor
+
+    try {
+        const newTemplate = await HabitTemplate.create(newPayload);
+
+        if (!newTemplate) {
+            throw new NotFoundError(SYSTEM_HABIT_MESSAGES.CREATION_FAILED);
+        }
+
+        return {
+            name: newTemplate.name,
+            category: newTemplate.category,
+            habitType: newTemplate.habitType,
+            supportsLocation: newTemplate.supportsLocation,
+            defaultFrequency: newTemplate.defaultFrequency,
+            group: newTemplate.group,
+            parent: newTemplate.parent,
+            pdfContent: newTemplate.pdfContent,
+        };
+    } catch (error) {
+        // DB create fail hole cloudinary theke pdf delete kore dao (rollback)
+        if (pdfUrl) {
+            await deleteImageFromCloudinary(pdfUrl); // resource_type: 'raw' pass korte hobe function er vitor
+        }
+        throw error;
     }
-    throw error;
-  }
 };
 
+// get all system habits with status
+const getAllHabits = async (query: Record<string, unknown>) => {
+    const { page = 1, limit = 10, searchTerm, status, category, level } = query;
 
+    const matchStage: any = {};
 
+    // Status filter
+    if (status) matchStage.status = status;
+    if (category) matchStage.category = category;
+    if (level) matchStage.level = level;
+
+    // Search Term logic add kora hoyeche
+    if (searchTerm) {
+        matchStage.$or = [
+            { name: { $regex: searchTerm, $options: 'i' } },
+        ];
+    }
+
+    const result = await HabitTemplate.aggregate([
+        { $match: matchStage },
+        {
+            $facet: {
+                data: [
+                    { $sort: { createdAt: -1 } },
+                    { $skip: (Number(page) - 1) * Number(limit) },
+                    { $limit: Number(limit) },
+                    {
+                        $project: {
+                            name: 1,
+                            category: 1,
+                            level: 1,
+                            habitType: 1,
+                            status: 1,
+                            isGuestLocked: 1,
+                            createdAt: 1
+                        },
+                    },
+                ],
+                total: [{ $count: 'count' }],
+            },
+        },
+    ]);
+
+    const users = result[0]?.data || [];
+    const total = result[0]?.total[0]?.count || 0;
+
+    const data = users.map((user: any) => ({
+        ...user,
+    }));
+
+    return {
+        meta: {
+            page: Number(page),
+            limit: Number(limit),
+            total,
+            totalPages: Math.ceil(total / Number(limit)),
+        },
+        data,
+    };
+}
+
+const getHabitTemplateById = async (id: string) => {
+    const habitTemplate = await HabitTemplate.findById(id);
+    if (!habitTemplate) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    return habitTemplate;
+}
+
+const updateDraftHabitToPublish = async (id: string) => {
+    const habit = await HabitTemplate.updateOne({ _id: id }, { status: 'published' });
+    if (habit.modifiedCount === 0) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    return habit;
+}
+
+const getGroupHabits = async () => {
+    const groupHabits = await HabitTemplate.find({ isGroup: true }).select('_id name').lean();
+    return groupHabits;
+}
+
+const getParentHabits = async () => {
+    const parentHabits = await HabitTemplate.find({ isParent: true }).select('_id name').lean();
+    return parentHabits;
+}
 
 // update system habit
-// const updateSystemHabit = async (id: string, payload: TUpdateSystemHabit) => {
-//     const habit = await SystemHabit.findByIdAndUpdate(id, payload, {
-//         new: true,
-//         runValidators: true,
-//     })
-//     if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND)
-//     return habit
-// }
+const updateSystemHabit = async (id: string, payload: TUpdateHabitTemplate, pdfFile: Express.Multer.File) => {
+    const habit = await HabitTemplate.findById(id);
+    if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    if (habit.status === 'published') throw new BadRequestError("published habit can not be updated");
 
+    let pdfUrl: string | null = null;
+
+    if (pdfFile) {
+        const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
+        pdfUrl = uploaded.secure_url;
+    }
+
+    const updatedPayload: any = {
+        ...payload,
+        pdfContent: pdfUrl || habit.pdfContent, // If new PDF is uploaded, use its URL; otherwise, keep the existing one
+    };
+
+
+    const updatedHabit = await HabitTemplate.findByIdAndUpdate(id, updatedPayload, { new: true });
+    if (!updatedHabit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+
+
+    if (pdfUrl && habit.pdfContent) {
+        // Delete the old PDF from Cloudinary if a new one is uploaded
+        await deleteImageFromCloudinary(habit.pdfContent);
+    }
+    return null;
+
+}
+
+const deleteSystemHabit = async (id: string) => {
+    const habit = await HabitTemplate.findById(id);
+    if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    if (habit.status === 'published') throw new BadRequestError("published habit can not be deleted");
+
+    await HabitTemplate.findByIdAndDelete(id);
+    if (habit.pdfContent) {
+        await deleteImageFromCloudinary(habit.pdfContent);
+    }
+};
 
 export const habitTemplateService = {
     createHabitTemplateIntoDB,
     GetAllHabitsWithStatus,
-    // updateSystemHabit,
+    getGroupHabits,
+    getHabitTemplateById,
+    updateDraftHabitToPublish,
+    getParentHabits,
+    getAllHabits,
+    updateSystemHabit,
+    deleteSystemHabit
 }

@@ -1,7 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { ALLOW_CONNECTED_PRAYERS, CONNECTED_PRAYERS, HABIT_CATEGORIES, HABIT_LEVELS } from '../../../../interfaces';
 import { FREQUENCY_TYPES, HABIT_LOCATIONS, WEEK_DAYS } from '../../user-habit/user.habit.constant';
-import { FREQUENCIES, HABIT_TYPES } from './system.habit.constant';
+import { FREQUENCIES, HABIT_STATUS, HABIT_TYPES } from './system.habit.constant';
 import { IDefaultFrequency, IHabitTemplate } from './system.habit.interface';
 
 const frequencySchema = new Schema<IDefaultFrequency>({
@@ -117,6 +117,11 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       default: false
     },
 
+    isNew:{
+      type: Boolean,
+      default: false
+    },
+
     isGuestLocked: {
       type: Boolean,
       default: true
@@ -142,6 +147,11 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
      pdfContent: {
       type: String,
       default: null
+    },
+    status: {
+      type: String,
+      enum: Object.values(HABIT_STATUS),
+      default: HABIT_STATUS.DRAFT
     },
     isActive: {
       type: Boolean,
