@@ -5,43 +5,23 @@ import { BadRequestError, NotFoundError } from '../../../errors/request/apiError
 import { UserHabit } from '../../user-habit/user.habit.model';
 import { USER_ROLE } from '../../user/user.constant';
 import { IUser } from '../../user/user.interface';
-import { SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
+import { HABIT_STATUS, SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
 import { HabitTemplate } from './system.habit.model';
 import { TCreateHabitTemplate, TUpdateHabitTemplate } from './system.habit.zod';
 
 
+// get all system habits with status for user
 const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
     const userId = user._id as Types.ObjectId;
 
-    const templateFilter: any = { isActive: true };
+    const templateFilter: any = { isActive: true, status: HABIT_STATUS.PUBLISHED };
     if (category && category.toLowerCase() !== 'all') {
         templateFilter.category = { $regex: new RegExp(`^${category}$`, 'i') };
     }
 
-
-    const templatesWithConnections = await HabitTemplate.find(
-        { isActive: true, 'connectedHabits.0': { $exists: true } },
-        { connectedHabits: 1 },
-    ).lean();
-
-    console.log({ templatesWithConnections })
-    const connectedTemplateIds = new Set(
-        templatesWithConnections
-            .flatMap((t: any) =>
-                (t.connectedHabits ?? []).map((ch: any) =>
-                    ch.templateHabit?.toString()  // 
-                )
-            )
-            .filter(Boolean),
-    );
-    console.log({ connectedTemplateIds })
     const topLevelTemplates = await HabitTemplate.find({
         ...templateFilter,
         $or: [{ group: null }, { group: { $exists: false } }],
-        // Exclude templates that are referenced as connected habits
-        ...(connectedTemplateIds.size > 0 && {
-            _id: { $nin: Array.from(connectedTemplateIds) },
-        }),
     }).lean();
 
     console.log({ topLevelTemplates })
@@ -50,6 +30,7 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
     const allChildren = await HabitTemplate.find({
         group: { $in: topLevelIds },
         isActive: true,
+        status: HABIT_STATUS.PUBLISHED
     }).select('_id group').lean();
 
     const groupChildrenMap = new Map<string, Types.ObjectId[]>();
@@ -63,9 +44,16 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
         .select('template isActive _id name category habitType')
         .lean();
 
-    const userHabitMap = new Map(
-        userHabits.map(h => [h.template?.toString(), h]),
-    );
+    // A template can now have multiple UserHabit instances for the same user
+    // (e.g. "Adhkar after prayer" → one instance per obligatory prayer), so
+    // group by template instead of overwriting with a single Map entry.
+    const userHabitsByTemplate = new Map<string, typeof userHabits>();
+    for (const h of userHabits) {
+        const key = h.template?.toString();
+        if (!key) continue;
+        if (!userHabitsByTemplate.has(key)) userHabitsByTemplate.set(key, []);
+        userHabitsByTemplate.get(key)!.push(h);
+    }
 
     const buckets: Record<string, any[]> = {
         beginner: [],
@@ -86,12 +74,12 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
 
         if (isGroup) {
             isUserActive = children.some(childId => {
-                const userHabit = userHabitMap.get(childId.toString());
-                return userHabit?.isActive ?? false;
+                const habitsForChild = userHabitsByTemplate.get(childId.toString()) ?? [];
+                return habitsForChild.some(h => h.isActive);
             });
         } else {
-            const userHabit = userHabitMap.get(templateId);
-            isUserActive = userHabit?.isActive ?? false;
+            const habitsForTemplate = userHabitsByTemplate.get(templateId) ?? [];
+            isUserActive = habitsForTemplate.some(h => h.isActive);
         }
 
         if (isUserActive) activeCount++;
@@ -262,23 +250,27 @@ const getAllHabits = async (query: Record<string, unknown>) => {
     };
 }
 
+// get habit template by id
 const getHabitTemplateById = async (id: string) => {
     const habitTemplate = await HabitTemplate.findById(id);
     if (!habitTemplate) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
     return habitTemplate;
 }
 
+// update draft habit to publish
 const updateDraftHabitToPublish = async (id: string) => {
-    const habit = await HabitTemplate.updateOne({ _id: id }, { status: 'published' });
+    const habit = await HabitTemplate.updateOne({ _id: id }, { status: HABIT_STATUS.PUBLISHED });
     if (habit.modifiedCount === 0) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
-    return habit;
+    return null;
 }
 
+// get group habits
 const getGroupHabits = async () => {
     const groupHabits = await HabitTemplate.find({ isGroup: true }).select('_id name').lean();
     return groupHabits;
 }
 
+// get parent habits
 const getParentHabits = async () => {
     const parentHabits = await HabitTemplate.find({ isParent: true }).select('_id name').lean();
     return parentHabits;
@@ -315,6 +307,7 @@ const updateSystemHabit = async (id: string, payload: TUpdateHabitTemplate, pdfF
 
 }
 
+// delete system habit
 const deleteSystemHabit = async (id: string) => {
     const habit = await HabitTemplate.findById(id);
     if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);

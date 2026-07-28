@@ -1,10 +1,14 @@
+import { Bug } from "../../bug/bug.model";
 import { SUBSCRIPTION_STATUS } from "../../subscription/subscription.constant";
 import Subscription from "../../subscription/subscription.model";
 import User from "../../user/user.model";
+import { Announcement } from "../announcement/announcement.model";
+import { Discount } from "../discount/discount.model";
+import { HabitTemplate } from "../habit-template/system.habit.model";
 
 
 const getStatsOverview = async () => {
-    const [premiumUsers, users, totalUsers] = await Promise.all([
+    const [premiumUsers, users, totalUsers,totalHabits,totalAnnouncement,totalDiscounts,totalBugReports] = await Promise.all([
         Subscription.aggregate([
             {
                 $match: {
@@ -15,7 +19,12 @@ const getStatsOverview = async () => {
         User.find({})
             .lean(),
 
-        User.countDocuments({})
+        User.countDocuments({}),
+
+        HabitTemplate.countDocuments({}),
+        Announcement.countDocuments({}),
+        Discount.countDocuments({}),
+        Bug.countDocuments({}),
 
     ]);
 
@@ -28,10 +37,13 @@ const getStatsOverview = async () => {
         activeAccounts: activeAccountUsers,
         blockedAccounts: blockedAccountUsers,
         premiumUsers: premiumUsers.length,
+        totalHabits: totalHabits,
+        totalAnnouncement: totalAnnouncement,
+        totalBugReports: totalBugReports,
+        totalDiscounts: totalDiscounts
     };
-
-};
-
+}
+    
 
 const getRecentUsers = async () => {
     const users = await User.find({

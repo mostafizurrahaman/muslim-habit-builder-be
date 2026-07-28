@@ -11,6 +11,7 @@ import userBugRouter from "./bugs/bug.route";
 import discountRouter from "./discount/discount.route";
 import adhkarRouter from "./adhkar-set/adhkar.set.route";
 import habitTemplateRouter from "./habit-template/system.habit.route";
+import { analyticsController } from "./analytics/analytics.controller";
 
 
 const adminRouter = Router();
@@ -26,5 +27,6 @@ adminRouter.use('/get-me', authMiddleware(USER_ROLE.ADMIN,USER_ROLE.SUPER_ADMIN)
 adminRouter.use('/update-profile', authMiddleware(USER_ROLE.ADMIN,USER_ROLE.SUPER_ADMIN), adminController.updateAdminProfileIntoDb);
 adminRouter.use('/announcement', announcementRouter);
 adminRouter.use('/discount', discountRouter);
+adminRouter.use('/habit/analytics', authMiddleware(USER_ROLE.ADMIN,USER_ROLE.SUPER_ADMIN), analyticsController.getHabitAnalyticsIntoDb);
 
 export default adminRouter;

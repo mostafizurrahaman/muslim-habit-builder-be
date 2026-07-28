@@ -175,18 +175,58 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
             console.log({ habitIds })
 
 
-            const activeChildHabits = await UserHabit.find({
+            const parentsWithConnected = await UserHabit.find({
+                _id: { $in: habitIds },
+            }).select('connectedHabits').lean();
+
+            const connectedChildIds = parentsWithConnected
+                .flatMap(p => p.connectedHabits?.map((c: IConnectedHabit) => c.userHabit) ?? []);
+
+            if (connectedChildIds.length) {
+                await UserHabit.updateMany(
+                    { _id: { $in: connectedChildIds }, isActive: true },
+                    { $set: { isActive: false } },
+                );
+
+                await HabitLog.updateMany(
+                    { userHabit: { $in: connectedChildIds }, date: String(date), status: LOG_STATUS.PENDING },
+                    { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
+                );
+
+                await Promise.all(connectedChildIds.map((id: Types.ObjectId) => disconnectFromParents(id)));
+            }
+
+            return null;
+        }
+
+        // Need the template to know whether this is a connected-obligatory habit (e.g. Adhkar after prayer)
+        const template = await HabitTemplate.findById(habitId).lean();
+
+        // ── Connected-obligatory deactivate (e.g. Adhkar after prayer: deactivate all 5 instances) ──
+        if (template?.isConnectedObligatory) {
+            const activeInstances = await UserHabit.find({
                 user: userId,
-                parent: { $in: childTemplates.map(c => c._id) },
+                template: habitId,
                 isActive: true,
             }).select('_id').lean();
 
-            if (activeChildHabits.length) {
-                await UserHabit.updateMany(
-                    { _id: { $in: activeChildHabits.map(h => h._id) } },
-                    { $set: { isActive: false } }
-                );
+            if (!activeInstances.length) {
+                throw new BadRequestError('Habit is already deactivated');
             }
+
+            const instanceIds = activeInstances.map(h => h._id);
+
+            await UserHabit.updateMany(
+                { _id: { $in: instanceIds } },
+                { $set: { isActive: false, parent: null } },
+            );
+
+            await HabitLog.updateMany(
+                { userHabit: { $in: instanceIds }, date: String(date), status: LOG_STATUS.PENDING },
+                { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
+            );
+
+            await Promise.all(instanceIds.map(id => disconnectFromParents(id)));
 
             return null;
         }
@@ -446,6 +486,128 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
         };
     }
 
+    // ── CASE 1.5: Connected-obligatory activate (e.g. Adhkar after prayer → one instance per obligatory prayer) ──
+    if (template.isConnectedObligatory) {
+        const obligatoryPrayers = await UserHabit.find({
+            user: userId,
+            habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+        }).select('_id isActive template').lean();
+
+        if (!obligatoryPrayers.length) {
+            throw new BadRequestError('Activate the obligatory prayers first to unlock this habit.');
+        }
+
+        // Only attach to prayers that are currently active
+        const activePrayers = obligatoryPrayers.filter(
+            (p): p is typeof p & { template: Types.ObjectId } => p.isActive && !!p.template,
+        );
+
+        if (!activePrayers.length) {
+            throw new BadRequestError('Activate the obligatory prayers first to unlock this habit.');
+        }
+
+        // Existing instances of this exact template for this user, keyed by parent prayer id
+        const existingInstances = await UserHabit.find({
+            user: userId,
+            template: habitId,
+        }).select('_id isActive parent').lean();
+
+        const existingByParent = new Map(
+            existingInstances.map(h => [h.parent?.toString(), h]),
+        );
+
+        const toReactivate: Types.ObjectId[] = [];
+        const toReactivateWithPrayer: { id: Types.ObjectId; prayerTemplateId: Types.ObjectId }[] = [];
+        const toCreateForPrayers: typeof activePrayers = [];
+
+        for (const prayer of activePrayers) {
+            const existing = existingByParent.get(prayer._id.toString());
+            if (!existing) {
+                toCreateForPrayers.push(prayer);
+            } else if (!existing.isActive) {
+                toReactivate.push(existing._id);
+                toReactivateWithPrayer.push({ id: existing._id, prayerTemplateId: prayer.template });
+            }
+            // already active for this prayer → skip silently
+        }
+
+        if (!toReactivate.length && !toCreateForPrayers.length) {
+            throw new BadRequestError('habit is already activated.');
+        }
+
+        // Reactivate soft-deleted instances
+        if (toReactivate.length) {
+            await UserHabit.updateMany(
+                { _id: { $in: toReactivate } },
+                { $set: { isActive: true, startDate: new Date() } },
+            );
+
+            const existingLogs = await HabitLog.find({
+                userHabit: { $in: toReactivate },
+                date: String(date),
+            }).select('userHabit status').lean();
+
+            const existingLogMap = new Map<string, any>(
+                existingLogs.map((l: any) => [l.userHabit?.toString(), l]),
+            );
+
+            const logsToInsert: Types.ObjectId[] = [];
+
+            for (const id of toReactivate) {
+                const existingLog = existingLogMap.get(id.toString());
+                if (!existingLog) {
+                    logsToInsert.push(id);
+                } else if (existingLog.status === 'Skipped') {
+                    await HabitLog.updateOne(
+                        { userHabit: id, date: String(date) },
+                        { $set: { status: 'Pending', skippedAt: null } },
+                    );
+                }
+            }
+
+            if (logsToInsert.length) {
+                await HabitLog.insertMany(
+                    logsToInsert.map(id => ({
+                        user: userId,
+                        userHabit: id,
+                        date: String(date),
+                        status: 'Pending',
+                    })),
+                );
+            }
+
+            for (const { id, prayerTemplateId } of toReactivateWithPrayer) {
+                await connectToParent(userId, prayerTemplateId, id);
+            }
+        }
+
+        // Create a fresh instance for every prayer that doesn't already have one
+        let newHabits: any[] = [];
+        if (toCreateForPrayers.length) {
+            const payloads = toCreateForPrayers.map(() => buildHabitPayload(userId, template));
+            newHabits = await UserHabit.insertMany(payloads);
+
+            await HabitLog.insertMany(
+                newHabits.map(h => ({
+                    user: userId,
+                    userHabit: h._id,
+                    date: String(date),
+                    status: 'Pending',
+                })),
+            );
+
+            for (let i = 0; i < newHabits.length; i++) {
+                await connectToParent(userId, toCreateForPrayers[i].template, newHabits[i]._id);
+            }
+        }
+
+        return {
+            added: newHabits.map(h => ({ _id: h._id, name: h.name })),
+            reactivated: toReactivate.map(id => ({ _id: id })),
+            skipped: null,
+        };
+    }
+
     // ── CASE 2: Single activate ──
     const existingHabit = await UserHabit.findOne({
         user: userId,
@@ -469,18 +631,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
                 throw new BadRequestError(
                     'Activate the required habit first to unlock this habit.',
                 );
-            }
-        }
-
-        if (template.isConnectedObligatory) {
-
-            const connectedTempaltes = await UserHabit.find({
-                user: userId,
-                habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
-            });
-
-            for (const connectedTemplate of connectedTempaltes) {
-                await connectToParent(userId, connectedTemplate._id, existingHabit._id);
             }
         }
 
@@ -547,17 +697,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
         await connectToParent(userId, template.parent, newHabit._id);
     }
 
-    if (template.isConnectedObligatory) {
-
-        const connectedTempaltes = await UserHabit.find({
-            user: userId,
-            habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
-        });
-
-        for (const connectedTemplate of connectedTempaltes) {
-            await connectToParent(userId, connectedTemplate._id, newHabit._id);
-        }
-    }
     return { added: [{ _id: newHabit._id, name: newHabit.name }], skipped: null };
 };
 

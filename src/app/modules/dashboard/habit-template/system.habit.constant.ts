@@ -12,8 +12,8 @@ export const SYSTEM_HABIT_MESSAGES = {
 }
 
 export const HABIT_STATUS ={
-  DRAFT: 'Draft',
-  PUBLISHED: 'Published'
+  DRAFT: 'draft',
+  PUBLISHED: 'published'
 }
 export type HabitStatus = (typeof HABIT_STATUS)[keyof typeof HABIT_STATUS];
 
