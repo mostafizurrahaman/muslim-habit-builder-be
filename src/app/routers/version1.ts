@@ -33,11 +33,6 @@ const appRouters = [
   },
 
   {
-    path: '/habit-template',
-    router: habitTemplateRouter,
-  },
-
-  {
     path: '/admin',
     router: adminRouter,
   },
