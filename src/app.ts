@@ -29,16 +29,8 @@ app.get('/', (req, res) => {
 
 app.use(
   cors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-      'http://localhost:3003',
-      'http://localhost:3004',
-      'http://localhost:3005',
-      'https://itminan-dashboard.vercel.app'
-    ],
-  }),
+    origin: '*',
+  })
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
