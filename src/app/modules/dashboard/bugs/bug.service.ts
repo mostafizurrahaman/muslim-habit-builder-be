@@ -58,7 +58,7 @@ const getAllBugs = async (query: Record<string, unknown>) => {
                     // Format the data and flatten the response
                     {
                         $project: {
-                            _id: 0,
+                            _id: 1,
                             featureKey: 1,
                             title: 1,
                             status: 1,
