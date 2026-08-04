@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { ConnectedPrayer, HabitCategory, HabitLevel } from '../../../interfaces';
+import { ConnectedPrayer, HabitCategory, HabitLevel, AllowedConnectedPrayer } from '../../../interfaces';
 import { Frequency, HabitType } from '../dashboard/habit-template/system.habit.constant';
 import { FrequencyType, HabitLocation, TargetType, WeekDay } from './user.habit.constant';
 
@@ -26,7 +26,7 @@ export interface IUserHabit {
   name: string;
   category: HabitCategory;
   connectedPrayer?: ConnectedPrayer;
-  allowConnectedPrayers: ConnectedPrayer[];
+  allowConnectedPrayers: AllowedConnectedPrayer[];
   isPrayerLocked: boolean;
   location?: HabitLocation;
   frequency: IFrequency;

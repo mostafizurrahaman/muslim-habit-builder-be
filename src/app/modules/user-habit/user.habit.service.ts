@@ -80,7 +80,6 @@ const connectToParent = async (
     parentTemplateId: Types.ObjectId,
     newUserHabitId: Types.ObjectId,
 ) => {
-    console.log({ userId, parentTemplateId, newUserHabitId })
 
     const parentUserHabit = await UserHabit.findOne({
         user: userId,
@@ -89,7 +88,6 @@ const connectToParent = async (
     }).select('_id connectedHabits');
 
 
-    console.log({ parentUserHabit })
     if (!parentUserHabit) return;
 
     console.log({ parentUserHabitConnected: parentUserHabit.connectedHabits })
@@ -103,8 +101,6 @@ const connectToParent = async (
         (max: number, c: IConnectedHabit) => Math.max(max, c.order ?? 0),
         0,
     ) ?? 0;
-
-    console.log({ maxOrder });
 
     await UserHabit.updateOne(
         { _id: parentUserHabit._id },
@@ -142,7 +138,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
             group: habitId,
             isActive: true,
         }).lean();
-        console.log({ childTemplates })
+
         const isGroup = childTemplates.length > 0;
 
         // ── Group deactivate ──
@@ -152,7 +148,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
                 template: { $in: childTemplates.map(c => c._id) },
                 isActive: true,
             }).select('_id').lean();
-            console.log({ activeHabits })
+
             if (!activeHabits.length) {
                 throw new BadRequestError('No active habits found in this group.');
             }
@@ -172,7 +168,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
             await Promise.all(habitIds.map(id => disconnectFromParents(id)));
 
-            console.log({ habitIds })
 
 
             const parentsWithConnected = await UserHabit.find({
@@ -245,7 +240,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
                 template: null,
             });
 
-            console.log({ customHabit });
 
             if (!customHabit) {
                 throw new BadRequestError('custom habit not found');
@@ -456,7 +450,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
         let newHabits: any[] = [];
         if (canAdd.length) {
-            console.log({ canAdd })
+
             const payloads = canAdd.map(t => buildHabitPayload(userId, t));
             newHabits = await UserHabit.insertMany(payloads);
 
@@ -491,7 +485,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
         const obligatoryPrayers = await UserHabit.find({
             user: userId,
             habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
-        }).select('_id isActive template').lean();
+        }).select('_id isActive template connectedPrayer').lean();
 
         if (!obligatoryPrayers.length) {
             throw new BadRequestError('Activate the obligatory prayers first to unlock this habit.');
@@ -510,7 +504,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
         const existingInstances = await UserHabit.find({
             user: userId,
             template: habitId,
-        }).select('_id isActive parent').lean();
+        }).select('_id isActive parent connectedPrayer').lean();
 
         const existingByParent = new Map(
             existingInstances.map(h => [h.parent?.toString(), h]),
@@ -580,12 +574,17 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
                 await connectToParent(userId, prayerTemplateId, id);
             }
         }
-
+        console.log({ toCreateForPrayers })
         // Create a fresh instance for every prayer that doesn't already have one
         let newHabits: any[] = [];
         if (toCreateForPrayers.length) {
             const payloads = toCreateForPrayers.map(() => buildHabitPayload(userId, template));
-            newHabits = await UserHabit.insertMany(payloads);
+            const updatedPayloads = payloads.map((p, index) => ({
+                ...p,
+                parent: toCreateForPrayers[index]._id,
+                connectedPrayer: toCreateForPrayers[index].connectedPrayer ?? null,
+            }));
+            newHabits = await UserHabit.insertMany(updatedPayloads);
 
             await HabitLog.insertMany(
                 newHabits.map(h => ({
@@ -724,9 +723,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     }).select('_id connectedHabits').lean();
 
     const connectedHabitIds = new Set(
-        allActiveHabits.flatMap(h =>
-            (h.connectedHabits ?? []).map((c: any) => c.userHabit?.toString()),
-        ),
+        allActiveHabits
+            .flatMap(h => (h.connectedHabits ?? []).map((c: any) => c.userHabit?.toString()))
+            .filter((id): id is string => Boolean(id)),
     );
 
     const filter: any = {
@@ -740,10 +739,10 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     }
 
     const habits = await UserHabit.find(filter)
-        .select('_id name category connectedHabits habitType infoContent adhkarSet quranContent customDetails frequency startDate')
+        .select('_id name category connectedHabits habitType infoContent adhkarSet quranContent customDetails frequency')
         .populate({
             path: 'connectedHabits.userHabit',
-            select: '_id name category frequency startDate adhkarSet quranContent customDetails infoContent habitType',
+            select: '_id name category adhkarSet quranContent infoContent pdfContent',
         })
         .sort({ displayOrder: 1 })
         .lean();
@@ -788,7 +787,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             .map((c: any) => c.userHabit?._id ?? c.userHabit),
     );
 
-    const allIds = [...allUserHabitIds, ...connectedIds];
+    const allIds = [...allUserHabitIds, ...connectedIds].filter(id => Boolean(id));
 
     // ── Logs fetch ────────────────────────────────────────────
 
@@ -823,6 +822,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
                 const child = c.userHabit;
                 return child?.frequency ? shouldShowToday(child.frequency, child.startDate) : true;
             })
+            .filter((c: any) => Boolean(c.userHabit))
             .sort((a: any, b: any) => a.order - b.order)
             .map((c: any) => {
                 const child = c.userHabit;
@@ -924,7 +924,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 // ─────────────────────────────────────────────────────────────
 const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHabitPayload) => {
     const userId = user._id as Types.ObjectId;
-    console.log({ payload })
+    console.log({ habitPayload: payload });
     const habit = await UserHabit.findOne({
         _id: userHabitId,
         user: userId,
@@ -973,11 +973,61 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
     }
 
     if (payload.connectedPrayer !== undefined) {
-        habit.connectedPrayer = payload.connectedPrayer as any;
+
+
+        // check if the connected prayer habit exists for this user
+        const connectHabit = await UserHabit.findOne({
+            user: userId,
+            habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+            connectedPrayer: payload.connectedPrayer,
+        });
+
+        if (!connectHabit) {
+            throw new NotFoundError('Connected prayer habit not found');
+        }
+
+        // Remove this habit from any previously connected prayer parent first.
+        await UserHabit.updateMany(
+            {
+                user: userId,
+                habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+                'connectedHabits.userHabit': habit._id,
+            },
+            {
+                $pull: {
+                    connectedHabits: {
+                        userHabit: habit._id,
+                    },
+                },
+            },
+        );
+
+        // Reload target parent so ordering is calculated from the latest state.
+        const refreshedConnectHabit = await UserHabit.findById(connectHabit._id);
+
+        if (!refreshedConnectHabit) {
+            throw new NotFoundError('Connected prayer habit not found');
+        }
+
+        const maxOrder = refreshedConnectHabit.connectedHabits?.reduce(
+            (max, item) => (item.order > max ? item.order : max),
+            0
+        ) ?? 0;
+
+        const addedHabit = {
+            userHabit: habit._id,
+            order: maxOrder + 1,
+        }
+
+        // Save the final state back to the habit document
+        refreshedConnectHabit.connectedHabits?.push(addedHabit);
+        habit.parent = refreshedConnectHabit._id;
+        habit.connectedPrayer = payload.connectedPrayer as ConnectedPrayer;
+        await refreshedConnectHabit.save();
     }
 
     if (payload.connectedHabits && payload.connectedHabits.length > 0) {
-        if (habit.habitType !== 'obligatory_prayer') {
+        if (habit.habitType !== HABIT_TYPES.OBLIGATORY_PRAYER) {
             throw new BadRequestError('Only obligatory prayers can have connected habits');
         }
 
@@ -996,9 +1046,10 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         if (idsToRemove.length) {
             await UserHabit.updateMany(
                 { _id: { $in: idsToRemove }, user: userId },
-                { $unset: { parent: "" } } // or $set: { parent: null } depending on your schema
+                { $unset: { parent: null } } // or $set: { parent: null } depending on your schema
             );
         }
+
 
         // 3. Handle Additions & Validations
         if (uniqueNewIds.length) {
@@ -1064,7 +1115,6 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
             select: '_id name category habitType isLocked',
         })
         .lean();
-    console.log({ habit })
     if (!habit) throw new NotFoundError('Habit not found or habit is not active');
 
     const isObligatoryPrayer = habit.habitType === HABIT_TYPES.OBLIGATORY_PRAYER;
@@ -1177,7 +1227,6 @@ const searchHabitsToConnect = async (
         habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
     }).select('_id connectedHabits allowConnectedPrayers connectedPrayer').lean();
 
-    console.log({ parentHabit })
 
     if (!parentHabit) throw new NotFoundError('Habit not found or not an obligatory prayer');
 
