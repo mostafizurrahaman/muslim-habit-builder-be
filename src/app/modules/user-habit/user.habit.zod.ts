@@ -273,13 +273,6 @@ export const editHabitSchema = z
       },
     }).min(1, 'Name cannot be empty').max(50, 'Name cannot exceed 50 characters').optional(),
 
-    category: z.enum(Object.values(HABIT_CATEGORIES) as [string, ...string[]], {
-      error: (issue) => {
-        if (issue.input === undefined) return 'Category is required';
-        return `Invalid category. Must be one of: ${Object.values(HABIT_CATEGORIES).join(', ')}`;
-      },
-    }).optional(),
-
     connectedPrayer: z
       .enum(
         Object.values(CONNECTED_PRAYERS).filter(Boolean) as [string, ...string[]],

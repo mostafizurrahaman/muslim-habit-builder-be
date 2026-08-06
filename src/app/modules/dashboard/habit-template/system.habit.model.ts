@@ -101,7 +101,7 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Boolean,
       default: false
     },
-    
+
     isConnectedObligatory: {
       type: Boolean,
       default: false
@@ -111,13 +111,13 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Boolean,
       default: false
     },
-    
+
     isGroup: {
       type: Boolean,
       default: false
     },
 
-    isNew:{
+    isNew: {
       type: Boolean,
       default: false
     },
@@ -144,7 +144,7 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       default: null
     },
 
-     pdfContent: {
+    pdfContent: {
       type: String,
       default: null
     },
@@ -157,7 +157,10 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Boolean,
       default: true
     },
-
+    prayerCustomizedAt: {
+      type: Date,
+      default: Date.now(),
+    },
   },
   {
     timestamps: true,

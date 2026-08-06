@@ -1,8 +1,8 @@
 import { Schema, model } from 'mongoose';
 
-import { CONNECTED_PRAYERS, HABIT_CATEGORIES, HABIT_LEVELS } from '../../../interfaces';
+import { CONNECTED_PRAYERS, HABIT_CATEGORIES } from '../../../interfaces';
 import { WEEK_DAYS } from '../../../shared/constants/habit.shared.types';
-import { FREQUENCIES, HABIT_TYPES } from '../dashboard/habit-template/system.habit.constant';
+import { FREQUENCIES } from '../dashboard/habit-template/system.habit.constant';
 import { FREQUENCY_TYPES, HABIT_LOCATIONS, TARGET_TYPES } from './user.habit.constant';
 import { IFrequency, IReminder, IUserHabit } from './user.habit.interface';
 
@@ -36,6 +36,123 @@ const reminderSchema = new Schema<IReminder>({
 
 
 // user habit
+const userHabitSchema = new Schema<IUserHabit>(
+  {
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    template: {
+      type: Schema.Types.ObjectId,
+      ref: 'HabitTemplate',
+      default: null,
+    },
+    name: {
+      type: String,
+      required: false,
+      trim: true,
+      default: null
+    },
+    category: {
+      type: String,
+      enum: Object.values(HABIT_CATEGORIES),
+      required: true,
+    },
+    parent: {
+      type: Schema.Types.ObjectId,
+      ref: 'UserHabit',
+      default: null,
+    },
+
+    connectedPrayer: {
+      type: String,
+      enum: Object.values(CONNECTED_PRAYERS),
+      default: null,
+    },
+    location: {
+      type: String,
+      enum: Object.values(HABIT_LOCATIONS),
+      default: null,
+    },
+    frequency: {
+      type: frequencySchema,
+      required: true,
+    },
+    allowedFrequencies: {
+      type: [String],
+      enum: Object.values(FREQUENCIES),
+      required: false
+    },
+    reminder: {
+      type: reminderSchema,
+      required: true,
+    },
+    startDate: {
+      type: Date,
+      required: true,
+    },
+    showOnTodayScreen: {
+      type: Boolean,
+      default: true,
+    },
+
+    targetType: {
+      type: String,
+      enum: Object.values(TARGET_TYPES),
+      default: null
+    },
+    targetDescription: {
+      type: String,
+      default: null,
+    },
+
+    customDetails: {
+      type: String,
+      default: null
+    },
+    connectedHabits: {
+      type: [{
+        userHabit: { type: Schema.Types.ObjectId, ref: 'UserHabit', required: false },
+        order: { type: Number, required: true },
+      }],
+      default: [],
+    },
+
+    isPreBuilt: {
+      type: Boolean,
+      default: true
+    },
+
+    isActive: {
+      type: Boolean,
+      default: false,
+    },
+    progressRestartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    prayerCustomizedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+    versionKey: false
+  }
+);
+
+userHabitSchema.index({ user: 1, isActive: 1, parent: 1 });
+userHabitSchema.index({ user: 1 });
+userHabitSchema.index({ parent: 1 });
+
+export const UserHabit = model<IUserHabit>('UserHabit', userHabitSchema);
+
+
+/*
+
 const userHabitSchema = new Schema<IUserHabit>(
   {
     user: {
@@ -179,8 +296,5 @@ const userHabitSchema = new Schema<IUserHabit>(
   }
 );
 
-userHabitSchema.index({ user: 1, isActive: 1, parent: 1 });
-userHabitSchema.index({ user: 1 });
-userHabitSchema.index({ parent: 1 });
 
-export const UserHabit = model<IUserHabit>('UserHabit', userHabitSchema);
+*/

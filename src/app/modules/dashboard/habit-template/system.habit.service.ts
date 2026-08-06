@@ -117,7 +117,6 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
             isUserActive: h.isActive,
             category: h.category,
             customDetails: h.customDetails ?? null,
-            infoContent: h.infoContent ?? null,
         });
     }
 

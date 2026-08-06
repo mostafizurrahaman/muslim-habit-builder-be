@@ -64,6 +64,8 @@ export interface IHabitTemplate {
 
   isActive: boolean;
   
+  prayerCustomizedAt?: Date | null;
+
   createdAt: Date;
 
   updatedAt: Date;
