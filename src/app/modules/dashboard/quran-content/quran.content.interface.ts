@@ -11,7 +11,6 @@ export interface IQuranContent {
   nameArabic?: string;
   totalVerses: number;
   pages: number;
-  isDeleted: boolean;
   images: {
     order: number;
     imageUrl: string;

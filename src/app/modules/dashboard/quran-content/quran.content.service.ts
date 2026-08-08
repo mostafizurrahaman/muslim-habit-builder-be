@@ -7,6 +7,7 @@ import { NotFoundError } from "../../../errors/request/apiError";
 import { TQuranContentImages } from "./quran.content.interface";
 import { QuranContent } from "./quran.content.model";
 import { TQuranContentPayload, TQuranContentUpdatePayload } from "./quran.content.zod";
+import { HabitTemplate } from "../habit-template/system.habit.model";
 
 
 // create quran content
@@ -87,7 +88,7 @@ const deleteQuranContent = async (id: string) => {
             deletedImages.map((url) => deleteImageFromCloudinary(url))
         );
          
-        quran.isDeleted = true;
+        await HabitTemplate.findOneAndUpdate({ quranContent: id }, { $unset: { quranContent: null }, new: true }).session(session);
         quran.images = [];
 
         await quran.save({session})

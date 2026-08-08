@@ -1,4 +1,5 @@
 import { BadRequestError, NotFoundError } from "../../../errors/request/apiError";
+import { HabitTemplate } from "../habit-template/system.habit.model";
 import { AdhkarSet } from "./adhkar.set.model";
 import { TAdhakarItemPayload, TAdhakarPayload, TUpdateAdhakarItemPayload, TUpdateAdhakarSetPayload } from "./adhkar.set.zod";
 
@@ -22,13 +23,12 @@ const deleteAdhakarSet = async (setId: string) => {
         throw new NotFoundError('Adhkar set not found');
     }
 
-    adhkar.isDeleted = true;
-    await adhkar.save();
+    await HabitTemplate.findOneAndUpdate({ adhkarSet: setId }, { $unset: { adhkarSet: null }, new: true });
     return null;
 };
 
-const getAdhkars = async ()=>{
-    const result = await AdhkarSet.find({isDeleted: false}).select('name _id items');
+const getAdhkars = async () => {
+    const result = await AdhkarSet.find().select('name _id items');
     return result.map(item => {
         return {
             id: item._id,

@@ -3,9 +3,11 @@ import mongoose, { Types } from 'mongoose';
 import { ConnectedPrayer } from '../../../interfaces';
 import { BadRequestError, NotFoundError } from '../../errors/request/apiError';
 
+import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
 import { HABIT_TYPES } from '../dashboard/habit-template/system.habit.constant';
 import { IHabitTemplate } from '../dashboard/habit-template/system.habit.interface';
 import { HabitTemplate } from '../dashboard/habit-template/system.habit.model';
+import { QuranContent } from '../dashboard/quran-content/quran.content.model';
 import { LOG_STATUS } from '../habit-logger/habit.logger.constant';
 import { HabitLog } from '../habit-logger/habit.logger.model';
 import { IUser } from '../user/user.interface';
@@ -14,8 +16,6 @@ import { IConnectedHabit, IFrequency } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
 import { buildDateBasedOnTimeZone } from './user.habit.utils';
 import { AddCustomHabitPayload, EditHabitPayload } from './user.habit.zod';
-import { QuranContent } from '../dashboard/quran-content/quran.content.model';
-import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
 
 
 // ─────────────────────────────────────────────────────────────
@@ -931,7 +931,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     }
 
     const habits = await UserHabit.find(filter)
-        .select('_id name category connectedHabits customDetails frequency startDate template')
+        .select('_id name category connectedHabits customDetails frequency startDate template isPrebuilt')
         .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent' })
         .populate({
             path: 'connectedHabits.userHabit',
@@ -1166,9 +1166,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         habit.customDetails = payload.customDetails;
     }
 
-    if (payload.connectedPrayer !== undefined) {
-
-
+    if (payload.connectedPrayer !== undefined && payload.connectedPrayer !== habit.connectedPrayer) {
         // check if the connected prayer habit exists for this user
         const connectHabit = await UserHabit.findOne({
             user: userId,
@@ -1183,7 +1181,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         await UserHabit.updateMany(
             {
                 user: userId,
-                habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+                connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] },
                 'connectedHabits.userHabit': habit._id,
             },
             {
@@ -1417,7 +1415,7 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
         name: display.name,
         category: display.category,
         connectedPrayer: display.connectedPrayer,
-        isPrayerLocked: display.isPrayerLocked,
+        isPrayerLocked: !habit.isPreBuilt ? Boolean(false) : display.isPrayerLocked,
         location: habit.location ?? null,
         frequency: habit.frequency,
         isPreBuilt: habit.isPreBuilt,
@@ -1468,7 +1466,7 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
 
     if (duplicate) throw new BadRequestError('You already have a habit with this name');
 
-    console.log({ payload })
+    console.log({ customPayload: payload });
 
     const newHabit = await UserHabit.create({
         user: userId,
@@ -1488,6 +1486,57 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
         isActive: true,
 
     });
+   
+        if (payload.connectedPrayer !== undefined) {
+        // check if the connected prayer habit exists for this user
+        const connectHabit = await UserHabit.findOne({
+            user: userId,
+            connectedPrayer: payload.connectedPrayer,
+        });
+
+        if (!connectHabit) {
+            throw new NotFoundError('Connected prayer habit not found');
+        }
+
+        // Remove this habit from any previously connected prayer parent first.
+        await UserHabit.updateMany(
+            {
+                user: userId,
+                connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] },
+                'connectedHabits.userHabit': newHabit._id,
+            },
+            {
+                $pull: {
+                    connectedHabits: {
+                        userHabit: newHabit._id,
+                    },
+                },
+            },
+        );
+
+        // Reload target parent so ordering is calculated from the latest state.
+        const refreshedConnectHabit = await UserHabit.findById(connectHabit._id);
+
+        if (!refreshedConnectHabit) {
+            throw new NotFoundError('Connected prayer habit not found');
+        }
+
+        const maxOrder = refreshedConnectHabit.connectedHabits?.reduce(
+            (max, item) => (item.order > max ? item.order : max),
+            0
+        ) ?? 0;
+
+        const addedHabit = {
+            userHabit: newHabit._id,
+            order: maxOrder + 1,
+        }
+
+        // Save the final state back to the habit document
+        refreshedConnectHabit.connectedHabits?.push(addedHabit);
+        newHabit.parent = refreshedConnectHabit._id;
+        newHabit.connectedPrayer = payload.connectedPrayer as ConnectedPrayer;
+        await refreshedConnectHabit.save();
+    }
 
     await HabitLog.create({
         user: userId,
@@ -1741,7 +1790,7 @@ const getDynamicHabitContent = async (user: IUser, habitId: string) => {
 
     if (adhkarData) {
         return adhkarData;
-    } 
+    }
 };
 
 export const userHabitService = {

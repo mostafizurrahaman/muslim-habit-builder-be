@@ -25,8 +25,6 @@ export const OBLIGATORY_PRAYER = {
   ISHA: 'Isha And Witr',
 }
 
-
-
 export const HABIT_TYPES = {
   OBLIGATORY_PRAYER: "obligatory_prayer",
   SUNNAH_PRAYER: "sunnah_prayer",
@@ -39,6 +37,7 @@ export const HABIT_TYPES = {
   DHIKR: "dhikr",
   DEED: "deed",
 } as const;
+
 
 export const PRAYER_HABIT_TYPES = [
     HABIT_TYPES.OBLIGATORY_PRAYER,
@@ -55,7 +54,7 @@ export const FREQUENCIES = {
   DAILY: "Daily",
   WEEKLY: "Weekly",
   EVERY_N_DAYS: "Every_N_Days",
-  FRIDAY: "Friday",
 } as const;
+
 export type Frequency = (typeof FREQUENCIES)[keyof typeof FREQUENCIES];
 

@@ -21,8 +21,6 @@ export interface IAdhkarSet {
 
   totalCount: number;
 
-  isDeleted: boolean;
-
   items: IAdhkarItem[];
 
   createdAt: Date;

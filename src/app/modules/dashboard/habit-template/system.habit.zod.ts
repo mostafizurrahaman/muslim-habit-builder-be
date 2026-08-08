@@ -237,6 +237,7 @@ const updateHabitTemplateZod = z
     parent: z
       .string({ error: 'Parent ID must be a string' })
       .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .nullable()
       .optional(),
   
 
@@ -245,6 +246,7 @@ const updateHabitTemplateZod = z
     group: z
       .string({ error: 'Group ID must be a string' })
       .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .nullable()
       .optional(),
 
     isGroup: z.coerce.boolean().optional(),
@@ -280,16 +282,19 @@ const updateHabitTemplateZod = z
     infoContent: z
       .string()
       .min(20, 'Info content must be at least 20 characters long')
+      .nullable()
       .optional(),
 
     adhkarSet: z
       .string({ error: 'Adhkar Set ID must be a string' })
       .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .nullable()
       .optional(),
 
     quranContent: z
       .string({ error: 'Quran Content ID must be a string' })
       .regex(/^[0-9a-fA-F]{24}$/, { message: 'Invalid Id format' })
+      .nullable()
       .optional(),
   })
   .superRefine((data, ctx) => {
