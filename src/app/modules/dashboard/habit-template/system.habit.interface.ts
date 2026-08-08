@@ -4,11 +4,29 @@ import { FrequencyType, HabitLocation, WeekDay } from '../../user-habit/user.hab
 import { Frequency, HabitStatus, HabitType } from './system.habit.constant';
 
 
-
 export interface IDefaultFrequency {
   type: FrequencyType;
   selectedDays?: WeekDay[];
   everyNDays?: number;
+}
+
+
+ 
+export interface EffectiveHabitTemplateFields {
+    name: string;
+    group?: string | Types.ObjectId | null;
+    parent?: string | Types.ObjectId | null;
+    connectedPrayer?: string | null;
+    level?: string;
+    isGuestLocked?: boolean;
+    isPrayerLocked?: boolean;
+    allowConnectedPrayers?: string[];
+    isConnectedObligatory?: boolean;
+    isLocked?: boolean;
+    category?: string;
+    habitType?: string;
+    quranContent?: unknown;
+    adhkarSet?: unknown;
 }
 
 export interface IHabitTemplate {

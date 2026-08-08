@@ -5,9 +5,13 @@ import { BadRequestError, NotFoundError } from '../../../errors/request/apiError
 import { UserHabit } from '../../user-habit/user.habit.model';
 import { USER_ROLE } from '../../user/user.constant';
 import { IUser } from '../../user/user.interface';
-import { HABIT_STATUS, SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
+import { HABIT_STATUS, HABIT_TYPES, SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
 import { HabitTemplate } from './system.habit.model';
 import { TCreateHabitTemplate, TUpdateHabitTemplate } from './system.habit.zod';
+import { HABIT_TYPE } from '../../../../shared/constants/habit.shared.types';
+import { HABIT_CATEGORIES } from '../../../../interfaces';
+import { validateHabitTemplateRules } from './system.habit.utils';
+import { EffectiveHabitTemplateFields } from './system.habit.interface';
 
 
 // get all system habits with status for user
@@ -133,42 +137,46 @@ const GetAllHabitsWithStatus = async (user: IUser, category?: string) => {
 // create system habit
 const createHabitTemplateIntoDB = async (
     payload: TCreateHabitTemplate,
-    pdfFile?: Express.Multer.File
+    pdfFile?: Express.Multer.File,
 ) => {
-
-    let groupId = null;
-    if (payload.group) {
-        const groupExists = await HabitTemplate.findById(payload.group).select('_id');
-        groupId = groupExists?._id || null;
-    }
-
-    let parentId = null;
-    if (payload.parent) {
-        const parentExists = await HabitTemplate.findById(payload.parent).select('_id');
-        parentId = parentExists?._id || null;
-    }
-
+    await validateHabitTemplateRules({
+        name: payload.name,
+        group: payload.group,
+        parent: payload.parent,
+        connectedPrayer: payload.connectedPrayer,
+        isPrayerLocked: payload.isPrayerLocked,
+        allowConnectedPrayers: payload.allowConnectedPrayers,
+        isConnectedObligatory: payload.isConnectedObligatory,
+        isLocked: payload.isLocked,
+        isGuestLocked: payload.isGuestLocked,
+        category: payload.category,
+        habitType: payload.habitType,
+        quranContent: payload.quranContent,
+        adhkarSet: payload.adhkarSet,
+        level: payload.level
+    });
+ 
     let pdfUrl: string | null = null;
-
+ 
     if (pdfFile) {
         const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
         pdfUrl = uploaded.secure_url;
     }
-
+ 
     const newPayload: any = {
         ...payload,
-        group: groupId,
-        parent: parentId,
+        group: payload.group || null,
+        parent: payload.parent || null,
         pdfContent: pdfUrl,
     };
-
+ 
     try {
         const newTemplate = await HabitTemplate.create(newPayload);
-
+ 
         if (!newTemplate) {
             throw new NotFoundError(SYSTEM_HABIT_MESSAGES.CREATION_FAILED);
         }
-
+ 
         return {
             name: newTemplate.name,
             category: newTemplate.category,
@@ -275,43 +283,84 @@ const getParentHabits = async () => {
     return parentHabits;
 }
 
-// update system habit
-const updateSystemHabit = async (id: string, payload: TUpdateHabitTemplate, pdfFile: Express.Multer.File) => {
+
+const updateSystemHabit = async (
+    id: string,
+    payload: TUpdateHabitTemplate,
+    pdfFile?: Express.Multer.File,
+) => {
     const habit = await HabitTemplate.findById(id);
     if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
-    if (habit.status === 'published') throw new BadRequestError("published habit can not be updated");
 
+
+    const { status, isActive, ...safePayload } = payload as any;
+
+    const effective: EffectiveHabitTemplateFields = {
+        name: safePayload.name !== undefined ? safePayload.name : habit.name,
+        group: safePayload.group !== undefined ? safePayload.group : habit.group,
+        parent: safePayload.parent !== undefined ? safePayload.parent : habit.parent,
+        isGuestLocked: safePayload.isGuestLocked !== undefined ? safePayload.isGuestLocked : habit.isGuestLocked,
+        connectedPrayer: safePayload.connectedPrayer !== undefined ? safePayload.connectedPrayer : habit.connectedPrayer,
+        isPrayerLocked: safePayload.isPrayerLocked !== undefined ? safePayload.isPrayerLocked : habit.isPrayerLocked,
+        allowConnectedPrayers:
+            safePayload.allowConnectedPrayers !== undefined ? safePayload.allowConnectedPrayers : habit.allowConnectedPrayers,
+        isConnectedObligatory:
+            safePayload.isConnectedObligatory !== undefined ? safePayload.isConnectedObligatory : habit.isConnectedObligatory,
+        isLocked: safePayload.isLocked !== undefined ? safePayload.isLocked : habit.isLocked,
+        category: safePayload.category !== undefined ? safePayload.category : habit.category,
+        habitType: safePayload.habitType !== undefined ? safePayload.habitType : habit.habitType,
+        quranContent: safePayload.quranContent !== undefined ? safePayload.quranContent : habit.quranContent,
+        adhkarSet: safePayload.adhkarSet !== undefined ? safePayload.adhkarSet : habit.adhkarSet,
+        level: safePayload.level !== undefined ? safePayload.level : habit.level,
+    };
+ 
+    await validateHabitTemplateRules(effective);
+ 
+    // If admin is changing allowConnectedPrayers, stamp prayerCustomizedAt so
+    // users with a customized connectedPrayer get re-validated against the
+    // new list (see getHabitDetail).
+    const allowConnectedPrayersChanged =
+        safePayload.allowConnectedPrayers !== undefined &&
+        JSON.stringify([...safePayload.allowConnectedPrayers].sort()) !==
+            JSON.stringify([...(habit.allowConnectedPrayers ?? [])].sort());
+ 
     let pdfUrl: string | null = null;
-
+ 
     if (pdfFile) {
         const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
         pdfUrl = uploaded.secure_url;
     }
-
+ 
     const updatedPayload: any = {
-        ...payload,
+        ...safePayload,
         pdfContent: pdfUrl || habit.pdfContent, // If new PDF is uploaded, use its URL; otherwise, keep the existing one
+        ...(allowConnectedPrayersChanged && { prayerCustomizedAt: new Date() }),
     };
-
-
-    const updatedHabit = await HabitTemplate.findByIdAndUpdate(id, updatedPayload, { new: true });
-    if (!updatedHabit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
-
-
-    if (pdfUrl && habit.pdfContent) {
-        // Delete the old PDF from Cloudinary if a new one is uploaded
-        await deleteImageFromCloudinary(habit.pdfContent);
+ 
+    try {
+        const updatedHabit = await HabitTemplate.findByIdAndUpdate(id, updatedPayload, { new: true });
+        if (!updatedHabit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+ 
+        if (pdfUrl && habit.pdfContent) {
+            // Delete the old PDF from Cloudinary if a new one is uploaded
+            await deleteImageFromCloudinary(habit.pdfContent);
+        }
+ 
+        return null;
+    } catch (error) {
+        // DB update fail hole notun upload kora pdf (jodi thake) cloudinary theke delete kore dao (rollback)
+        if (pdfUrl) {
+            await deleteImageFromCloudinary(pdfUrl);
+        }
+        throw error;
     }
-    return null;
+};
 
-}
-
-// delete system habit
 const deleteSystemHabit = async (id: string) => {
     const habit = await HabitTemplate.findById(id);
     if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
-    if (habit.status === 'published') throw new BadRequestError("published habit can not be deleted");
-
+    if (habit.status === HABIT_STATUS.PUBLISHED) throw new BadRequestError('published habit can not be deleted');
+ 
     await HabitTemplate.findByIdAndDelete(id);
     if (habit.pdfContent) {
         await deleteImageFromCloudinary(habit.pdfContent);

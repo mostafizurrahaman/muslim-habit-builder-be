@@ -19,6 +19,14 @@ authRouter.post(
 );
 
 authRouter.post(
+  '/admin/login',
+  validateRequest({
+    body: authValidationZodSchema.loginAuthSchema,
+  }),
+  authController.adminLoginWithCredential,
+);
+
+authRouter.post(
   '/social-login',
   validateRequest({
     body: userValidationZodSchema.createSocialAuthSchema,

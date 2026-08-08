@@ -85,7 +85,7 @@ userHabitRouter.get(
 );
 
 userHabitRouter.get(
-    '/content/:contentId',
+    '/content/:habitId',
     authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST),
     userHabitController.fetchDynamicContentIntoDb,
 );

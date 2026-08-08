@@ -23,9 +23,8 @@ const loginWithCredential = async (credential: TLoginPayload) => {
   const { email, password } = credential;
 
   const user = await userRepository.findByEmail(email);
-  if (!user) throw new UnauthorizedError('user not found with this email');
+  if (!user) throw new UnauthorizedError('invalid email or password');
 
-  console.log(user)
   if (user.deletedAt) {
     throw new UnauthorizedError('This account has been deleted. if you want to restore this account, create account with same email again');
   }
@@ -68,6 +67,28 @@ const loginWithCredential = async (credential: TLoginPayload) => {
   return tokens;
 };
 
+// admin login with credential
+const adminLoginWithCredential = async (credential: TLoginPayload) => {
+  const { email, password } = credential;
+
+  const user = await userRepository.findByEmail(email);
+  if (!user) throw new UnauthorizedError('invalid email or password');
+
+  if (user.role !== USER_ROLE.ADMIN && user.role !== USER_ROLE.SUPER_ADMIN) {
+    throw new UnauthorizedError('Unauthorized Access');
+  }
+  const isPasswordMatch = await user.isPasswordMatched(password);
+  if (!isPasswordMatch) throw new BadRequestError(`invalid email or password`);
+
+  const JwtPayload: jwtPayload = {
+    id: user._id.toString(),
+    role: user.role,
+    isRemembered: credential.isRemembered || false,
+  };
+  const tokens = await jwtHelpers.generateTokens(JwtPayload);
+
+  return tokens;
+};
 
 // authentication with Google
 const loginWithOAuth = async (credential: socialLoginPayload) => {
@@ -510,5 +531,6 @@ export const userAuthService = {
   forgotPassword,
   resetPassword,
   resetPasswordOtpAgain,
+  adminLoginWithCredential,
   generateNewAccessTokenByRefreshToken,
 };

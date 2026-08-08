@@ -1,21 +1,21 @@
 import moment from 'moment-timezone';
 import mongoose, { Types } from 'mongoose';
-import { ConnectedPrayer, HabitCategory } from '../../../interfaces';
+import { ConnectedPrayer } from '../../../interfaces';
 import { BadRequestError, NotFoundError } from '../../errors/request/apiError';
-import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
 
 import { HABIT_TYPES } from '../dashboard/habit-template/system.habit.constant';
+import { IHabitTemplate } from '../dashboard/habit-template/system.habit.interface';
 import { HabitTemplate } from '../dashboard/habit-template/system.habit.model';
-import { QuranContent } from '../dashboard/quran-content/quran.content.model';
 import { LOG_STATUS } from '../habit-logger/habit.logger.constant';
 import { HabitLog } from '../habit-logger/habit.logger.model';
 import { IUser } from '../user/user.interface';
 import { FREQUENCY_TYPES, WeekDay } from './user.habit.constant';
-import { IConnectedHabit, IFrequency, IUserHabit } from './user.habit.interface';
+import { IConnectedHabit, IFrequency } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
 import { buildDateBasedOnTimeZone } from './user.habit.utils';
 import { AddCustomHabitPayload, EditHabitPayload } from './user.habit.zod';
-import { IHabitTemplate } from '../dashboard/habit-template/system.habit.interface';
+import { QuranContent } from '../dashboard/quran-content/quran.content.model';
+import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
 
 
 // ─────────────────────────────────────────────────────────────
@@ -888,7 +888,7 @@ const STATUS_ORDER: Record<string, number> = {
 
 const resolveHabitDisplay = (h: any) => {
     const template = h.template as any | null | undefined;
- 
+
     return {
         name: template?.name ?? h.name ?? null,
         category: template?.category ?? h.category ?? null,
@@ -903,56 +903,56 @@ const resolveHabitDisplay = (h: any) => {
 const getTodayHabits = async (user: IUser, category?: string) => {
     const userId = user._id as Types.ObjectId;
     const dateStr = buildDateBasedOnTimeZone(user.timezone as string);
- 
+
     const todayDayName = moment(dateStr)
         .format('ddd')
         .toLowerCase() as WeekDay;
- 
+
     // ── Collect connected habit IDs — they should not show at the top level ──
     const allActiveHabits = await UserHabit.find({
         user: userId,
         isActive: true,
     }).select('_id connectedHabits').lean();
- 
+
     const connectedHabitIds = new Set(
         allActiveHabits
             .flatMap(h => (h.connectedHabits ?? []).map((c: any) => c.userHabit?.toString()))
             .filter((id): id is string => Boolean(id)),
     );
- 
+
     const filter: any = {
         user: userId,
         isActive: true,
         _id: { $nin: [...connectedHabitIds] },
     };
- 
+
     if (category && category.toLowerCase() !== 'all') {
         filter.category = { $regex: new RegExp(`^${category}$`, 'i') };
     }
- 
+
     const habits = await UserHabit.find(filter)
         .select('_id name category connectedHabits customDetails frequency startDate template')
-        .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent'})
+        .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent' })
         .populate({
             path: 'connectedHabits.userHabit',
             select: '_id name category customDetails template connectedPrayer',
-            populate: { path: 'template', select: 'name category infoContent pdfContent adhkarSet quranContent'},
+            populate: { path: 'template', select: 'name category infoContent pdfContent adhkarSet quranContent' },
         })
         .sort({ displayOrder: 1 })
         .lean();
- 
+
     // ── Frequency check ───────────────────────────────────────
- 
+
     const shouldShowToday = (frequency: IFrequency, startDate: Date): boolean => {
         switch (frequency.type) {
             case FREQUENCY_TYPES.DAILY:
                 return true;
- 
+
             case FREQUENCY_TYPES.WEEKLY: {
                 if (!frequency.selectedDays?.length) return false;
                 return frequency.selectedDays.includes(todayDayName);
             }
- 
+
             case FREQUENCY_TYPES.EVERY_N_DAYS: {
                 if (!frequency.everyNDays) return false;
                 const start = moment(startDate).startOf('day');
@@ -960,18 +960,18 @@ const getTodayHabits = async (user: IUser, category?: string) => {
                 const diffDays = today.diff(start, 'days');
                 return diffDays >= 0 && diffDays % frequency.everyNDays === 0;
             }
- 
+
             default:
                 return true;
         }
     };
- 
+
     const todayHabits = habits.filter(h => shouldShowToday(h.frequency, h.startDate));
- 
+
     // ── Log IDs collect ───────────────────────────────────────
- 
+
     const allUserHabitIds = todayHabits.map(h => h._id);
- 
+
     const connectedIds = todayHabits.flatMap(h =>
         (h.connectedHabits ?? [])
             .filter((c: any) => {
@@ -980,20 +980,20 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             })
             .map((c: any) => c.userHabit?._id ?? c.userHabit),
     );
- 
+
     const allIds = [...allUserHabitIds, ...connectedIds].filter(id => Boolean(id));
- 
+
     // ── Logs fetch ────────────────────────────────────────────
- 
+
     const existingLogs = await HabitLog.find({
         userHabit: { $in: allIds },
         date: dateStr,
     }).select('userHabit status').lean();
- 
+
     const logMap = new Map<string, string>(
         existingLogs.map((l: any) => [l.userHabit?.toString(), l.status]),
     );
- 
+
     // Missing logs seed
     const missingLogIds = allIds.filter(id => !logMap.has(id.toString()));
     if (missingLogIds.length) {
@@ -1007,9 +1007,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
         );
         missingLogIds.forEach(id => logMap.set(id.toString(), 'Pending'));
     }
- 
+
     // ── Response build ────────────────────────────────────────
- 
+
     const result = todayHabits.map(h => {
         const connectedHabits = (h.connectedHabits ?? [])
             .filter((c: any) => {
@@ -1022,7 +1022,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
                 const child = c.userHabit;
                 const childId = child?._id?.toString() ?? c.userHabit?.toString();
                 const childDisplay = resolveHabitDisplay(child ?? {});
- 
+
                 return {
                     _id: child?._id ?? c.userHabit,
                     name: childDisplay.name,
@@ -1036,12 +1036,12 @@ const getTodayHabits = async (user: IUser, category?: string) => {
                     status: logMap.get(childId) ?? 'Pending',
                 };
             });
- 
+
         const databaseParentStatus = logMap.get(h._id.toString()) ?? 'Pending';
- 
+
         // ── Display status determine ───────────────────────────
         let finalDisplayStatus: string;
- 
+
         if (connectedHabits.length > 0) {
             if (databaseParentStatus === 'Skipped') {
                 // If the parent is skipped, mark it as Skipped so it sorts lower
@@ -1059,9 +1059,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
         } else {
             finalDisplayStatus = databaseParentStatus;
         }
- 
+
         const parentDisplay = resolveHabitDisplay(h);
- 
+
         return {
             _id: h._id,
             name: parentDisplay.name,
@@ -1076,24 +1076,24 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             connectedHabits,
         };
     });
- 
+
     // ── Sort: Pending → Completed → Skipped ──────────────────
     // This applies to all habits, whether they have connectedHabits or not
     const sortedResult = result.sort(
         (a, b) => (STATUS_ORDER[a.status] ?? 0) - (STATUS_ORDER[b.status] ?? 0),
     );
- 
+
     // ── Summary ───────────────────────────────────────────────
- 
+
     const total = sortedResult.length;
     const completed = sortedResult.filter(h => h.status === 'Completed').length;
     const pending = sortedResult.filter(h => h.status === 'Pending').length;
     const skipped = sortedResult.filter(h => h.status === 'Skipped').length;
- 
+
     const completedHabits = sortedResult
         .filter(h => h.status === 'Completed')
         .map(h => ({ _id: h._id, name: h.name }));
- 
+
     return {
         summary: {
             total,
@@ -1345,7 +1345,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 
 const resolveHabitDetailDisplay = (h: any) => {
     const template = h.template as any | null | undefined;
- 
+
     return {
         name: template?.name ?? h.name ?? null,
         category: template?.category ?? h.category ?? null,
@@ -1365,48 +1365,53 @@ const resolveHabitDetailDisplay = (h: any) => {
 
 const getHabitDetail = async (user: IUser, userHabitId: string) => {
     const userId = user._id as Types.ObjectId;
- 
+
     const habit = await UserHabit.findOne({
         _id: userHabitId,
         user: userId,
         isActive: true,
     })
-        .populate({ path: 'template', select: 'name category habitType infoContent pdfContent adhkarSet quranContent connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' })
+        .populate({ path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' })
         .populate({
             path: 'connectedHabits.userHabit',
             select: '_id name category template habitType isLocked',
-            populate: { path: 'template', select: 'name category habitType infoContent pdfContent adhkarSet quranContent connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' },
+            populate: { path: 'template', select: 'name category habitType  connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' },
         })
         .lean();
-    
+
     console.log({ habit })
     if (!habit) throw new NotFoundError('Habit not found or habit is not active');
- 
+
     // ── Validate the user's customized connectedPrayer against the template's
     //    current allowConnectedPrayers — admin may have removed it since ──
     const template = habit.template as any | null | undefined;
- 
-    if (habit.prayerCustomizedAt && habit.connectedPrayer) {
-        const allowedPrayers: string[] = template?.allowConnectedPrayers ?? [];
-        const stillAllowed = allowedPrayers.includes(habit.connectedPrayer);
- 
-        if (!stillAllowed) {
-            await UserHabit.updateOne(
-                { _id: habit._id },
-                { $set: { connectedPrayer: null, prayerCustomizedAt: null, parent: null } },
-            );
- 
-            await disconnectFromParents(habit._id);
- 
-            // Reflect the reset locally so the response below is accurate
-            (habit as any).connectedPrayer = null;
-            (habit as any).prayerCustomizedAt = null;
+    const isPrayerLocked = template?.isPrayerLocked ?? true;
+    if (!isPrayerLocked && habit.prayerCustomizedAt && habit.connectedPrayer) {
+        const templateChangedSinceSync =
+            !!template?.updatedAt && new Date(template.updatedAt) > new Date(habit.prayerCustomizedAt);
+
+        if (templateChangedSinceSync) {
+            const allowedPrayers: string[] = template?.allowConnectedPrayers ?? [];
+            const stillAllowed = allowedPrayers.includes(habit.connectedPrayer);
+
+            if (!stillAllowed) {
+                await UserHabit.updateOne(
+                    { _id: habit._id },
+                    { $set: { connectedPrayer: null, prayerCustomizedAt: null, parent: null } },
+                );
+
+                await disconnectFromParents(habit._id);
+
+                // Reflect the reset locally so the response below is accurate
+                (habit as any).connectedPrayer = null;
+                (habit as any).prayerCustomizedAt = new Date();
+            }
         }
     }
- 
+
     const display = resolveHabitDetailDisplay(habit);
     const isObligatoryPrayer = display.habitType === HABIT_TYPES.OBLIGATORY_PRAYER;
- 
+
     return {
         _id: habit._id,
         name: display.name,
@@ -1430,7 +1435,7 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
                 .map((c: any) => {
                     const child = c.userHabit;
                     const childDisplay = resolveHabitDetailDisplay(child ?? {});
- 
+
                     return {
                         _id: child?._id ?? c.userHabit,
                         name: childDisplay.name,
@@ -1481,7 +1486,7 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
         showOnTodayScreen: payload.customDetails ? true : false,
         customDetails: payload.customDetails ?? null,
         isActive: true,
-    
+
     });
 
     await HabitLog.create({
@@ -1516,7 +1521,7 @@ const searchHabitsToConnect = async (
         isActive: true,
     })
         .select('_id connectedHabits connectedPrayer prayerCustomizedAt template')
-        .populate({ path: 'template', select: 'habitType connectedPrayer' })
+        .populate({ path: 'template', select: 'habitType connectedPrayer isPrayerLocked' })
         .lean();
 
     if (!parentHabit) throw new NotFoundError('Habit not found or not an obligatory prayer');
@@ -1527,91 +1532,69 @@ const searchHabitsToConnect = async (
         throw new NotFoundError('Habit not found or not an obligatory prayer');
     }
 
-    // Respect the user's own customization over the template's default
-    const effectiveConnectedPrayer = parentHabit.prayerCustomizedAt
-        ? parentHabit.connectedPrayer ?? null
-        : parentTemplate?.connectedPrayer ?? parentHabit.connectedPrayer ?? null;
+    // Locked habits always mirror the template live (user never had a choice).
+    // Unlocked habits use the user's own stored selection — getHabitDetail is
+    // responsible for keeping that selection valid against the template's
+    // current allowConnectedPrayers list.
+    const isPrayerLocked = parentTemplate?.isPrayerLocked ?? true;
+    const effectiveConnectedPrayer = isPrayerLocked
+        ? parentTemplate?.connectedPrayer ?? null
+        : parentHabit.connectedPrayer ?? parentTemplate?.connectedPrayer ?? null;
 
     if (!effectiveConnectedPrayer) return [];
 
-    // Already connected ids
-    const alreadyConnectedIds = (parentHabit.connectedHabits ?? []).map(
-        c => c.userHabit.toString(),
-    );
+    // Already connected ids (+ the parent itself) should never show up as a candidate
+    const alreadyConnectedIds = (parentHabit.connectedHabits ?? []).map(c => c.userHabit.toString());
+    const excludedIds = new Set([userHabitId, ...alreadyConnectedIds]);
+    console.log({ excludedIds, effectiveConnectedPrayer, searchTerm });
+    // Pull every other active habit this user has, with its template populated.
+    // (Per-user habit counts are small, so filtering in application code here
+    // is simpler to reason about than a $lookup aggregation.)
+    const candidates = await UserHabit.find({
+        user: userId,
+        isActive: true,
+        _id: { $nin: [...excludedIds] },
+    })
+        .select('_id name category allowConnectedPrayers template')
+        .populate({ path: 'template', select: 'name category habitType allowConnectedPrayers' })
+        .lean();
 
-    const excludedIds = [new Types.ObjectId(userHabitId), ...alreadyConnectedIds.map(id => new Types.ObjectId(id))];
+    console.log({ candidates })
+    const search = searchTerm?.trim().toLowerCase();
 
-    // A candidate can be either template-based (habitType/allowConnectedPrayers/name
-    // come from its template) or a custom habit (template: null, uses its own fields).
-    // Aggregation lets us resolve both shapes into one uniform set of fields to filter on.
-    const pipeline: any[] = [
-        {
-            $match: {
-                user: userId,
-                isActive: true,
-                _id: { $nin: excludedIds },
-            },
-        },
-        {
-            $lookup: {
-                from: HabitTemplate.collection.name,
-                localField: 'template',
-                foreignField: '_id',
-                as: 'templateDoc',
-            },
-        },
-        { $unwind: { path: '$templateDoc', preserveNullAndEmptyArray: true } },
-        {
-            $addFields: {
-                resolvedName: { $ifNull: ['$templateDoc.name', '$name'] },
-                resolvedCategory: { $ifNull: ['$templateDoc.category', '$category'] },
-                resolvedHabitType: '$templateDoc.habitType',
-                resolvedAllowConnectedPrayers: {
-                    $ifNull: ['$templateDoc.allowConnectedPrayers', '$allowConnectedPrayers'],
-                },
-            },
-        },
-        {
-            $match: {
-                // Excludes obligatory/sunnah prayers; custom habits have no habitType
-                // (null), which naturally passes $nin.
-                resolvedHabitType: { $nin: [HABIT_TYPES.OBLIGATORY_PRAYER, HABIT_TYPES.SUNNAH_PRAYER] },
-                resolvedAllowConnectedPrayers: effectiveConnectedPrayer,
-            },
-        },
-    ];
+    const matches = candidates.filter((c: any) => {
+        const template = c.template;
+        console.log({ template })
+        const resolvedHabitType = template?.habitType ?? null;
+        const resolvedAllowConnectedPrayers: string[] = template?.allowConnectedPrayers ?? c.allowConnectedPrayers ?? [];
+        const resolvedName = template?.name ?? c.name ?? '';
 
-    if (searchTerm?.trim()) {
-        pipeline.push({
-            $match: { resolvedName: { $regex: new RegExp(searchTerm.trim(), 'i') } },
-        });
-    }
+        if (resolvedHabitType === HABIT_TYPES.OBLIGATORY_PRAYER || resolvedHabitType === HABIT_TYPES.SUNNAH_PRAYER) {
+            return false;
+        }
 
-    pipeline.push(
-        { $limit: 20 },
-        {
-            $project: {
-                _id: 1,
-                name: '$resolvedName',
-                category: '$resolvedCategory',
-                habitType: '$resolvedHabitType',
-            },
-        },
-    );
+        if (!resolvedAllowConnectedPrayers.includes(effectiveConnectedPrayer)) {
+            return false;
+        }
 
-    const habits = await UserHabit.aggregate(pipeline);
+        if (search && !resolvedName.toLowerCase().includes(search)) {
+            return false;
+        }
 
-    return habits.map(h => ({
-        _id: h._id,
-        name: h.name ?? null,
-        category: h.category ?? null,
-        habitType: h.habitType ?? null,
+        return true;
+    });
+
+    return matches.slice(0, 20).map((c: any) => ({
+        _id: c._id,
+        name: c.template?.name ?? c.name ?? null,
+        category: c.template?.category ?? c.category ?? null,
+        habitType: c.template?.habitType ?? null,
     }));
 };
 
 const deleteCustomHabit = async (user: IUser, habitId: string) => {
 
-    const habit = await UserHabit.findById(habitId);
+    const habit = await UserHabit.findById(habitId).select('_id user isPreBuilt');
     if (!habit) {
         throw new NotFoundError('Habit not found');
     }
@@ -1732,26 +1715,33 @@ const skippedHabit = async (user: IUser, habitId: string) => {
 }
 
 // get content
-const getDynamicHabitContent = async (user: IUser, contentId: string) => {
+const getDynamicHabitContent = async (user: IUser, habitId: string) => {
+
+    const habit = await UserHabit.findOne({ _id: habitId, user: user._id }).populate<{ template: IHabitTemplate }>('template', 'adhkarSet quranContent').select('_id').lean();
+
+    console.log({ habit })
+    if (!habit) {
+        throw new NotFoundError('Habit not found');
+    }
+
+    if (!habit.template?.adhkarSet && !habit.template?.quranContent) {
+        throw new NotFoundError('No dynamic content associated with this habit');
+    }
+
 
     // 1. Check whether the content is Quran data
-    const quranData = await QuranContent.findOne({ _id: contentId, isDeleted: false }).lean();
+    const quranData = await QuranContent.findOne({ _id: habit.template.quranContent, isDeleted: false }).lean();
 
     if (quranData) {
         return quranData;
     }
 
     // 2. Check whether the content is an Adhkar set before continuing
-    const adhkarData = await AdhkarSet.findOne({ _id: contentId, isDeleted: false }).lean();
+    const adhkarData = await AdhkarSet.findOne({ _id: habit.template.adhkarSet, isDeleted: false }).lean();
 
     if (adhkarData) {
         return adhkarData;
-    }
-
-    // 3. Standard error logging fallback for unmatched content queries
-    console.log("Mongoose registered collection names:", mongoose.connection.modelNames());
-
-    throw new NotFoundError('Content details not found in either Quran or Adhkar records');
+    } 
 };
 
 export const userHabitService = {

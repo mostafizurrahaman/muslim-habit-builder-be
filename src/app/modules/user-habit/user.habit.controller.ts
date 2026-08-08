@@ -126,8 +126,8 @@ const skipHabitIntoDb = asyncHandler(async (req: Request, res: Response) => {
 
 const fetchDynamicContentIntoDb = asyncHandler(async (req: Request, res: Response) => {
 
-  const { contentId } = req.params;
-  const result = await userHabitService.getDynamicHabitContent(req.user, contentId as string);
+  const { habitId } = req.params;
+  const result = await userHabitService.getDynamicHabitContent(req.user, habitId as string);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,

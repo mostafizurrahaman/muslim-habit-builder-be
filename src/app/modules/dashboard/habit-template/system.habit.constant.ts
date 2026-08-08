@@ -17,6 +17,16 @@ export const HABIT_STATUS ={
 }
 export type HabitStatus = (typeof HABIT_STATUS)[keyof typeof HABIT_STATUS];
 
+export const OBLIGATORY_PRAYER = {
+  FAJR: 'Fajr',
+  DHUHR: 'Dhuhr',
+  ASR: 'Asr',
+  MAGHRIB: 'Maghrib',
+  ISHA: 'Isha And Witr',
+}
+
+
+
 export const HABIT_TYPES = {
   OBLIGATORY_PRAYER: "obligatory_prayer",
   SUNNAH_PRAYER: "sunnah_prayer",
@@ -29,6 +39,16 @@ export const HABIT_TYPES = {
   DHIKR: "dhikr",
   DEED: "deed",
 } as const;
+
+export const PRAYER_HABIT_TYPES = [
+    HABIT_TYPES.OBLIGATORY_PRAYER,
+    HABIT_TYPES.SUNNAH_PRAYER,
+    HABIT_TYPES.WITR,
+    HABIT_TYPES.DUHA,
+    HABIT_TYPES.NIGHT_PRAYER,
+    HABIT_TYPES.NAFL,
+] as const;
+
 export type HabitType = (typeof HABIT_TYPES)[keyof typeof HABIT_TYPES];
 
 export const FREQUENCIES = {

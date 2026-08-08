@@ -16,6 +16,17 @@ const loginWithCredential = asyncHandler(async (req: Request, res: Response) => 
   });
 });
 
+// login with credential for admin
+const adminLoginWithCredential = asyncHandler(async (req: Request, res: Response) => {
+  const result = await userAuthService.adminLoginWithCredential(req.body);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Welcome back! You have successfully logged in.',
+    data: result,
+  });
+});
+
 // login with social
 const loginWithOAuth = asyncHandler(async (req: Request, res: Response) => {
   const result = await userAuthService.loginWithOAuth(req.body);
@@ -145,6 +156,7 @@ const getNewAccessTokenByRefreshToken = asyncHandler(async (req: Request, res: R
 
 export const authController = {
   loginWithCredential,
+  adminLoginWithCredential,
   loginWithOAuth,
   verifyEmailByOtp,
   sendVerificationOtpAgain,
