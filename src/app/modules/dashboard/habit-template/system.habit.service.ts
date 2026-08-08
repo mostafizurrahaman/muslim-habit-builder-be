@@ -8,8 +8,6 @@ import { IUser } from '../../user/user.interface';
 import { HABIT_STATUS, HABIT_TYPES, SYSTEM_HABIT_MESSAGES } from './system.habit.constant';
 import { HabitTemplate } from './system.habit.model';
 import { TCreateHabitTemplate, TUpdateHabitTemplate } from './system.habit.zod';
-import { HABIT_TYPE } from '../../../../shared/constants/habit.shared.types';
-import { HABIT_CATEGORIES } from '../../../../interfaces';
 import { validateHabitTemplateRules } from './system.habit.utils';
 import { EffectiveHabitTemplateFields } from './system.habit.interface';
 

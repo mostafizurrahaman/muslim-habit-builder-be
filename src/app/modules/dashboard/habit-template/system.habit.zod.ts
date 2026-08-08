@@ -180,23 +180,6 @@ const createHabitTemplateZod = z
       .nullable()
       .optional(),
   })
-  .superRefine((data, ctx) => {
-    if (data.category === HABIT_CATEGORIES.PRAYER && !data.isGroup && !data.connectedPrayer) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['connectedPrayer'],
-        message: 'Connected prayer is required when category is prayer',
-      })
-    }
-
-    if(data.isGroup && data.isParent){
-      ctx.addIssue({
-        code: 'custom',
-        path: ['parent'],
-        message: 'Group habit cannot be a parent habit. Please set isParent to false.',
-      })
-    }
-  })
 
 
   // update habit template zod
