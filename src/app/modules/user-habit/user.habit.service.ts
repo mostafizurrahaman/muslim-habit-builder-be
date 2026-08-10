@@ -457,7 +457,7 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
     if (template.isConnectedObligatory) {
         const obligatoryPrayers = await UserHabit.find({
             user: userId,
-            connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] },
+            connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'] },
         }).select('_id isActive template connectedPrayer').lean();
 
         if (!obligatoryPrayers.length) {
@@ -1493,30 +1493,17 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
             user: userId,
             connectedPrayer: payload.connectedPrayer,
         });
+        
+        console.log({ connectHabit })
 
         if (!connectHabit) {
             throw new NotFoundError('Connected prayer habit not found');
         }
 
-        // Remove this habit from any previously connected prayer parent first.
-        await UserHabit.updateMany(
-            {
-                user: userId,
-                connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] },
-                'connectedHabits.userHabit': newHabit._id,
-            },
-            {
-                $pull: {
-                    connectedHabits: {
-                        userHabit: newHabit._id,
-                    },
-                },
-            },
-        );
-
         // Reload target parent so ordering is calculated from the latest state.
         const refreshedConnectHabit = await UserHabit.findById(connectHabit._id);
-
+        
+        console.log({ refreshedConnectHabit })
         if (!refreshedConnectHabit) {
             throw new NotFoundError('Connected prayer habit not found');
         }
@@ -1536,6 +1523,7 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
         newHabit.parent = refreshedConnectHabit._id;
         newHabit.connectedPrayer = payload.connectedPrayer as ConnectedPrayer;
         await refreshedConnectHabit.save();
+        await newHabit.save();
     }
 
     await HabitLog.create({
