@@ -21,18 +21,13 @@ export const handleZodError = (err: ZodError) => {
   const errors: Record<string, string> = {};
 
   err.issues.forEach((issue) => {
-    if (issue.code === 'unrecognized_keys') {
-      const keyList = issue.keys.join(', ');
-      errors['unknownFields'] = `These fields are not allowed: ${keyList}`;
-    } else {
-      const path = issue.path.join('.');
-      errors[path] = issue.message;
-    }
+    const path = issue.path.join('.');
+    errors[path] = issue.message;
   });
-
+ const firstErrorMessage = err.issues[0]?.message || 'Invalid input data provided.';
   return {
     statusCode: 400,
-    message: 'Validation failed',
+    message: firstErrorMessage,
     success: false,
     status: 'failed',
     errors,

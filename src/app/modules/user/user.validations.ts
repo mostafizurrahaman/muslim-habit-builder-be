@@ -35,7 +35,7 @@ const createAuthSchema = z.object({
         .max(254, 'Email cannot exceed 254 characters')
     ),
 
-  password: z
+ password: z
     .string({
       error: (issue) => {
         if (issue.input === undefined) return 'Password is required';
@@ -43,12 +43,51 @@ const createAuthSchema = z.object({
         return 'Invalid password format';
       },
     })
-    .min(6, 'Password must be at least 6 characters long')
-    .max(20, 'Password cannot exceed 20 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number')
-    .regex(/[@$!%*?&#]/, 'Password must contain at least one special character'),
+    .superRefine((val, ctx) => {
+      if (val.length < 8) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password must be at least 8 characters long, less than 30 characters , and contain at least one uppercase letter, one lowercase letter, one number, and one special character',
+        });
+        return; // Length choto thakle porer check-gula ar run korbe na, tai direct min er message ashbe!
+      }
+      if (val.length > 25) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password cannot exceed 25 characters',
+        });
+        return;
+      }
+      if (!/[A-Z]/.test(val)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password must contain at least one uppercase letter',
+        });
+        return;
+      }
+      if (!/[a-z]/.test(val)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password must contain at least one lowercase letter',
+        });
+        return;
+      }
+      if (!/[0-9]/.test(val)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password must contain at least one number',
+        });
+        return;
+      }
+      if (!/[@$!%*?&#]/.test(val)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Password must contain at least one special character',
+        });
+        return;
+      }
+    }),
+
 
   timezone: z.string({
     error: (issue) => {
