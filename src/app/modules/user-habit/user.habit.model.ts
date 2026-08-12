@@ -78,15 +78,18 @@ const userHabitSchema = new Schema<IUserHabit>(
     frequency: {
       type: frequencySchema,
       required: true,
+      _id: false
     },
     allowedFrequencies: {
       type: [String],
       enum: Object.values(FREQUENCIES),
-      required: false
+      required: false,
+      _id: false
     },
     reminder: {
       type: reminderSchema,
       required: true,
+      _id: false
     },
     startDate: {
       type: Date,
@@ -117,6 +120,7 @@ const userHabitSchema = new Schema<IUserHabit>(
         order: { type: Number, required: true },
       }],
       default: [],
+      _id: false
     },
 
     isPreBuilt: {
@@ -144,9 +148,12 @@ const userHabitSchema = new Schema<IUserHabit>(
   }
 );
 
-userHabitSchema.index({ user: 1, isActive: 1, parent: 1 });
+
 userHabitSchema.index({ user: 1 });
 userHabitSchema.index({ parent: 1 });
+userHabitSchema.index({ template: 1 });
+userHabitSchema.index({ connectedPrayer: 1 });
+userHabitSchema.index({ user: 1,category: 1 });
 
 export const UserHabit = model<IUserHabit>('UserHabit', userHabitSchema);
 

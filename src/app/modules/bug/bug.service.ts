@@ -1,6 +1,6 @@
-import { deleteImageFromCloudinary } from "../../cloudinary/deleteImageFromCloudinary";
-import { uploadToCloudinary } from "../../cloudinary/uploadImageToCLoudinary";
 import QueryBuilder from "../../../builder/QueryBuilder";
+import { deleteImageFromCloudinary } from "../../../cloudinary/deleteImageFromCloudinary";
+import { uploadToCloudinary } from "../../../cloudinary/uploadImageToCLoudinary";
 import { BadRequestError } from "../../errors/request/apiError";
 import { IUser } from "../user/user.interface";
 import { TBugStatus } from "./bug.constant";

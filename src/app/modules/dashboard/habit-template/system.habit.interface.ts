@@ -11,22 +11,22 @@ export interface IDefaultFrequency {
 }
 
 
- 
+
 export interface EffectiveHabitTemplateFields {
-    name: string;
-    group?: string | Types.ObjectId | null;
-    parent?: string | Types.ObjectId | null;
-    connectedPrayer?: string | null;
-    level?: string;
-    isGuestLocked?: boolean;
-    isPrayerLocked?: boolean;
-    allowConnectedPrayers?: string[];
-    isConnectedObligatory?: boolean;
-    isLocked?: boolean;
-    category?: string;
-    habitType?: string;
-    quranContent?: unknown;
-    adhkarSet?: unknown;
+  name: string;
+  group?: string | Types.ObjectId | null;
+  parent?: string | Types.ObjectId | null;
+  connectedPrayer?: string | null;
+  level?: string;
+  isGuestLocked?: boolean;
+  isPrayerLocked?: boolean;
+  allowConnectedPrayers?: string[];
+  isConnectedObligatory?: boolean;
+  isLocked?: boolean;
+  category?: string;
+  habitType?: string;
+  quranContent?: unknown;
+  adhkarSet?: unknown;
 }
 
 export interface IHabitTemplate {
@@ -48,10 +48,10 @@ export interface IHabitTemplate {
 
   isParent: boolean;
 
-  supportsLocation: HabitLocation;    
+  supportsLocation: HabitLocation;
 
   group?: Types.ObjectId | null;
-  
+
   isGroup: boolean;
 
   defaultFrequency: IDefaultFrequency;
@@ -69,20 +69,22 @@ export interface IHabitTemplate {
   isGuestLocked: boolean;
 
   isNew: boolean;
-  
+
   pdfContent: string | null;
 
   infoContent: string | null
 
-  adhkarSet?: Types.ObjectId | null;  
+  adhkarSet?: Types.ObjectId | null;
 
   quranContent?: Types.ObjectId | null;
 
   status: HabitStatus;
 
   isActive: boolean;
-  
+
   prayerCustomizedAt?: Date | null;
+  
+  frequencyCustomizedAt?: Date | null;
 
   createdAt: Date;
 

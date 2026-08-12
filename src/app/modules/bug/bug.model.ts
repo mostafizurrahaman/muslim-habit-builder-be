@@ -24,5 +24,6 @@ const bugSchema = new Schema<IBug>({
     bugImages: [{ type: String, default: [] }]
 }, { timestamps: true, versionKey: false });
 
+bugSchema.index({ status: 1 });
 
 export const Bug = model<IBug>("Bug", bugSchema);

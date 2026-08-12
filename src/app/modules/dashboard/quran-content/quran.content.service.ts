@@ -1,13 +1,13 @@
 
 
 import mongoose from "mongoose";
-import { deleteImageFromCloudinary } from "../../../cloudinary/deleteImageFromCloudinary";
-import { uploadToCloudinary } from "../../../cloudinary/uploadImageToCLoudinary";
+import { deleteImageFromCloudinary } from "../../../../cloudinary/deleteImageFromCloudinary";
+import { uploadToCloudinary } from "../../../../cloudinary/uploadImageToCLoudinary";
 import { NotFoundError } from "../../../errors/request/apiError";
+import { HabitTemplate } from "../habit-template/system.habit.model";
 import { TQuranContentImages } from "./quran.content.interface";
 import { QuranContent } from "./quran.content.model";
 import { TQuranContentPayload, TQuranContentUpdatePayload } from "./quran.content.zod";
-import { HabitTemplate } from "../habit-template/system.habit.model";
 
 
 // create quran content
@@ -54,8 +54,8 @@ const createQuranContent = async (
 
 // get quran content list
 
-const getQuranContents = async ()=>{
-    const result = await QuranContent.find({isDeleted: false}).select('name _id pages');
+const getQuranContents = async () => {
+    const result = await QuranContent.find({ isDeleted: false }).select('name _id pages');
     return result.map(item => {
         return {
             id: item._id,
@@ -69,14 +69,14 @@ const getQuranContents = async ()=>{
 const deleteQuranContent = async (id: string) => {
     // 1. Start a Mongoose session
     const session = await mongoose.startSession();
-    
+
     // 2. Start the transaction
     session.startTransaction();
 
     try {
         // Find the content (using session is a good practice here)
         const quran = await QuranContent.findById(id).session(session);
-        
+
         if (!quran) {
             throw new NotFoundError("Content not found");
         }
@@ -87,21 +87,21 @@ const deleteQuranContent = async (id: string) => {
         await Promise.all(
             deletedImages.map((url) => deleteImageFromCloudinary(url))
         );
-         
+
         await HabitTemplate.findOneAndUpdate({ quranContent: id }, { $unset: { quranContent: null }, new: true }).session(session);
         quran.images = [];
 
-        await quran.save({session})
+        await quran.save({ session })
         // If everything is successful, commit the transaction
         await session.commitTransaction();
-        
+
         return null;
 
     } catch (error) {
         // If any error occurs (DB or Cloudinary), rollback the transaction
         await session.abortTransaction();
         throw error; // Re-throw the error for the global error handler
-        
+
     } finally {
         // End the session in the finally block so it always runs
         session.endSession();

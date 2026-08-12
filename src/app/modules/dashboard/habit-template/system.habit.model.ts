@@ -161,6 +161,10 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Date,
       default: Date.now(),
     },
+    frequencyCustomizedAt: {
+      type: Date,
+      default: Date.now(),
+    },
   },
   {
     timestamps: true,

@@ -1,7 +1,7 @@
+import { deleteImageFromCloudinary } from '../../../cloudinary/deleteImageFromCloudinary';
+import { uploadToCloudinary } from '../../../cloudinary/uploadImageToCLoudinary';
 import jwtHelpers from '../../../helpers/jwtHelpers';
 import { randomUserImage } from '../../../utilities/randomUserImage';
-import { deleteImageFromCloudinary } from '../../cloudinary/deleteImageFromCloudinary';
-import { uploadToCloudinary } from '../../cloudinary/uploadImageToCLoudinary';
 import { BadRequestError } from '../../errors/request/apiError';
 
 import { sendVerificationOtp } from '../auth/auth.utils';
@@ -116,20 +116,20 @@ const switchGuestAccountToRealAccount = async (user: IUser, payload: TRegistrati
   if (!existingUser) {
     throw new BadRequestError('Guest account not found.');
   }
-  
+
   existingUser.fullName = payload.fullName;
   existingUser.timezone = payload.timezone;
   existingUser.email = payload.email;
   existingUser.password = payload.password;
-  existingUser.verification.emailVerifiedAt = null; 
+  existingUser.verification.emailVerifiedAt = null;
   existingUser.role = USER_ROLE.USER;
   existingUser.status = USER_STATUS.ACTIVE;
-  
+
   await existingUser.save();
 
-  try{
-   await sendVerificationOtp(existingUser._id, payload.email);
-  }catch{
+  try {
+    await sendVerificationOtp(existingUser._id, payload.email);
+  } catch {
     throw new BadRequestError('Failed to send verification email. Try again.');
   }
 

@@ -1,4 +1,4 @@
-import cloudinary from '../../config/cloudinary.config';
+import cloudinary from '../config/cloudinary.config';
 import { getCloudinaryPublicId } from './getCoudinaryPublicId';
 
 export const deleteImageFromCloudinary = async (imageUrl: string) => {

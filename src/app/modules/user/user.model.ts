@@ -9,13 +9,13 @@ export const userSchema = new Schema<IUser>(
   {
     email: {
       type: String,
-      required: true,
+      required: [true, 'Email address is required'],
       lowercase: true,
       trim: true,
     },
     fullName: {
       type: String,
-      required: true,
+      required: [true, 'Full name is required'],
       trim: true,
     },
     phone: {

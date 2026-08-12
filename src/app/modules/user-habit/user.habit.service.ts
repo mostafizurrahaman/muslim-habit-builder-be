@@ -12,7 +12,8 @@ import { LOG_STATUS } from '../habit-logger/habit.logger.constant';
 import { HabitLog } from '../habit-logger/habit.logger.model';
 import { IUser } from '../user/user.interface';
 import { FREQUENCY_TYPES, WeekDay } from './user.habit.constant';
-import { IConnectedHabit, IFrequency } from './user.habit.interface';
+import { activateConnectedObligatoryHabit, activateCustomHabit, activateGroupHabit, activateSingleHabit, deactivateConnectedObligatoryHabit, deactivateGroupHabit, deactivateSingleHabit, disconnectFromParents } from './user.habit.helper';
+import { IFrequency } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
 import { buildDateBasedOnTimeZone } from './user.habit.utils';
 import { AddCustomHabitPayload, EditHabitPayload } from './user.habit.zod';
@@ -22,654 +23,65 @@ import { AddCustomHabitPayload, EditHabitPayload } from './user.habit.zod';
 //  HELPER
 // ─────────────────────────────────────────────────────────────
 
-const buildHabitPayload = (userId: Types.ObjectId, template: Partial<IHabitTemplate>) => ({
-    user: userId,
-    template: template._id,
-    name: null,
-    category: template.category,
-    parent: template.parent ?? null,
-    connectedPrayer: template.connectedPrayer ?? null,
-    allowConnectedPrayers: template.allowConnectedPrayers ?? [],
-    location: template.supportsLocation ?? null,
-    allowedFrequencies: template.allowedFrequencies ?? [],
-    frequency: {
-        type: template.defaultFrequency?.type ?? FREQUENCY_TYPES.DAILY,
-        selectedDays: template.defaultFrequency?.selectedDays ?? [],
-        everyNDays: template.defaultFrequency?.everyNDays ?? undefined,
-    },
-    reminder: { enabled: false, time: '12:00 AM' },
-    startDate: new Date(),
-    showOnTodayScreen: true,
-    prayerCustomizedAt: template.prayerCustomizedAt ?? null,
-    displayOrder: 0,
-    isActive: true,
-    customDetails: null,
-});
-
-
-// habit connect
-const connectToParent = async (
-    userId: Types.ObjectId,
-    parentTemplateId: Types.ObjectId,
-    newUserHabitId: Types.ObjectId,
-) => {
-
-    const parentUserHabit = await UserHabit.findOne({
-        user: userId,
-        template: parentTemplateId,
-        isActive: true,
-    }).select('_id connectedHabits');
-
-
-    if (!parentUserHabit) return;
-
-    console.log({ parentUserHabitConnected: parentUserHabit.connectedHabits })
-    const alreadyConnected = parentUserHabit.connectedHabits?.some(
-        (c: IConnectedHabit) => c.userHabit.toString() === newUserHabitId.toString(),
-    );
-    if (alreadyConnected) return;
-    console.log({ alreadyConnected })
-    console.log("asd", parentUserHabit.connectedHabits?.length)
-    const maxOrder = parentUserHabit.connectedHabits?.reduce(
-        (max: number, c: IConnectedHabit) => Math.max(max, c.order ?? 0),
-        0,
-    ) ?? 0;
-
-    await UserHabit.updateOne(
-        { _id: parentUserHabit._id },
-        {
-            $push: {
-                connectedHabits: {
-                    userHabit: newUserHabitId,
-                    order: maxOrder + 1,
-                },
-            },
-        },
-    );
-};
-
-
-const disconnectFromParents = async (userHabitId: Types.ObjectId) => {
-    await UserHabit.updateMany(
-        { 'connectedHabits.userHabit': userHabitId },
-        { $pull: { connectedHabits: { userHabit: userHabitId } } },
-    );
-};
-
-// ─────────────────────────────────────────────────────────────
-//  TOGGLE HABIT
-// ─────────────────────────────────────────────────────────────
 const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
     const userId = user._id as Types.ObjectId;
     const date = buildDateBasedOnTimeZone(user.timezone as string);
 
-    // ─────────────────────────────────────────────────────────
-    //  DEACTIVATE PATH
-    // ─────────────────────────────────────────────────────────
+    // ── DEACTIVATE ──
     if (!isActive) {
-        const childTemplates = await HabitTemplate.find({
-            group: habitId,
-            isActive: true,
-        }).lean();
+        const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
 
-        const isGroup = childTemplates.length > 0;
-
-        // ── Group deactivate ──
-        if (isGroup) {
-            const activeHabits = await UserHabit.find({
-                user: userId,
-                template: { $in: childTemplates.map(c => c._id) },
-                isActive: true,
-            }).select('_id').lean();
-
-            if (!activeHabits.length) {
-                throw new BadRequestError('No active habits found in this group.');
-            }
-
-            const habitIds = activeHabits.map(h => h._id);
-
-            await UserHabit.updateMany(
-                { _id: { $in: habitIds } },
-                { $set: { isActive: false } },
-            );
-
-            await HabitLog.updateMany(
-                { userHabit: { $in: habitIds }, date: String(date), status: LOG_STATUS.PENDING },
-                { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
-            );
-
-
-            await Promise.all(habitIds.map(id => disconnectFromParents(id)));
-
-
-
-            const parentsWithConnected = await UserHabit.find({
-                _id: { $in: habitIds },
-            }).select('connectedHabits').lean();
-
-            const connectedChildIds = parentsWithConnected
-                .flatMap(p => p.connectedHabits?.map((c: IConnectedHabit) => c.userHabit) ?? []);
-
-            if (connectedChildIds.length) {
-                await UserHabit.updateMany(
-                    { _id: { $in: connectedChildIds }, isActive: true },
-                    { $set: { isActive: false } },
-                );
-
-                await HabitLog.updateMany(
-                    { userHabit: { $in: connectedChildIds }, date: String(date), status: LOG_STATUS.PENDING },
-                    { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
-                );
-
-                await Promise.all(connectedChildIds.map((id: Types.ObjectId) => disconnectFromParents(id)));
-            }
-
+        if (childTemplates.length > 0) {
+            await deactivateGroupHabit(userId, childTemplates.map(c => c._id), date);
             return null;
         }
 
-        // Need the template to know whether this is a connected-obligatory habit (e.g. Adhkar after prayer)
         const template = await HabitTemplate.findById(habitId).lean();
 
-        // ── Connected-obligatory deactivate (e.g. Adhkar after prayer: deactivate all 5 instances) ──
         if (template?.isConnectedObligatory) {
-            const activeInstances = await UserHabit.find({
-                user: userId,
-                template: habitId,
-                isActive: true,
-            }).select('_id').lean();
-
-            if (!activeInstances.length) {
-                throw new BadRequestError('Habit is already deactivated');
-            }
-
-            const instanceIds = activeInstances.map(h => h._id);
-
-            await UserHabit.updateMany(
-                { _id: { $in: instanceIds } },
-                { $set: { isActive: false, parent: null } },
-            );
-
-            await HabitLog.updateMany(
-                { userHabit: { $in: instanceIds }, date: String(date), status: LOG_STATUS.PENDING },
-                { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
-            );
-
-            await Promise.all(instanceIds.map(id => disconnectFromParents(id)));
-
+            await deactivateConnectedObligatoryHabit(userId, habitId, date);
             return null;
         }
 
-        // ── Single deactivate ──
-        const userHabit = await UserHabit.findOne({
-            template: habitId,
-            user: userId,
-            isActive: true,
-        });
+        const userHabitExists = await UserHabit.exists({ template: habitId, user: userId, isActive: true });
 
-        if (!userHabit) {
-            const customHabit = await UserHabit.findOne({
-                _id: habitId,
-                user: userId,
-                template: null,
-            });
-
-
-            if (!customHabit) {
-                throw new BadRequestError('custom habit not found');
-            }
-            if (!customHabit.isActive) {
-                throw new BadRequestError('Habit is already deactivated');
-            }
-            await HabitLog.findOneAndUpdate(
-                { userHabit: customHabit._id, date: String(date), status: LOG_STATUS.PENDING },
-                { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
-            );
-            customHabit.isActive = false;
-            await customHabit.save()
-
-            await disconnectFromParents(customHabit._id);
-
+        if (userHabitExists) {
+            await deactivateSingleHabit(userId, habitId, date);
             return null;
         }
 
-        if (userHabit) {
-            userHabit.isActive = false;
-            userHabit.parent = null;
-            await userHabit?.save();
-
-            await HabitLog.findOneAndUpdate(
-                { userHabit: userHabit._id, date: String(date), status: 'Pending' },
-                { $set: { status: 'Skipped', skippedAt: new Date() } },
-            );
-
-            // Disconnect from the parent's connectedHabits
-            await disconnectFromParents(userHabit._id);
-
-            return null;
+        // Neither a template-linked habit nor found above — try custom habit
+        const customHabitExists = await UserHabit.exists({ _id: habitId, user: userId, template: null });
+        if (customHabitExists) {
+            await deactivateSingleHabit(userId, habitId, date);
+        } else {
+            throw new BadRequestError('custom habit not found');
         }
-
+        return null;
     }
 
-    // ─────────────────────────────────────────────────────────
-    //  ACTIVATE PATH
-    // ─────────────────────────────────────────────────────────
+    // ── ACTIVATE ──
     const template = await HabitTemplate.findById(habitId).lean();
 
     if (!template) {
-        // check it is custom habit activation with template null
-        const userCustomHabit = await UserHabit.findOne({ user: userId, _id: habitId, template: null }).lean();
-        if (!userCustomHabit) {
-            throw new NotFoundError('Habit template not found');
-        }
-
-        if (userCustomHabit.isActive) {
-            throw new BadRequestError('Habit is already active');
-        }
-        const existingLog = await HabitLog.findOne({
-            userHabit: userCustomHabit._id,
-            date: String(date),
-        });
-
-        if (existingLog) {
-            if (existingLog.status === 'Skipped') {
-                existingLog.status = 'Pending';
-                existingLog.skippedAt = null;
-                await existingLog.save();
-            }
-        } else {
-            await HabitLog.create({
-                user: userId,
-                userHabit: userCustomHabit._id,
-                date: String(date),
-                status: 'Pending',
-            });
-        }
-        await UserHabit.updateOne(
-            { _id: userCustomHabit._id },
-            { $set: { isActive: true, startDate: new Date() } }
-        );
-
-        return { added: [{ _id: userCustomHabit._id, name: userCustomHabit.name }], skipped: null };
+        return activateCustomHabit(userId, habitId, date);
     }
 
-    // non custom habit activation with template found but inactive
-    if (!template?.isActive) throw new BadRequestError('This habit is no longer available');
-
-    const childTemplates = await HabitTemplate.find({
-        group: habitId,
-        isActive: true,
-    }).lean();
-
-    const isGroup = childTemplates.length > 0;
-
-    // ── CASE 1: Group activate ──
-    if (isGroup) {
-        const existingHabits = await UserHabit.find({
-            user: userId,
-            template: { $in: childTemplates.map(c => c._id) },
-        }).select('template isActive _id').lean();
-
-        const existingMap = new Map(
-            existingHabits.map(h => [h.template?.toString(), h]),
-        );
-
-        const toReactivate: Types.ObjectId[] = [];
-        const toReactivateWithTemplate: { id: Types.ObjectId; templateId: Types.ObjectId }[] = [];
-        const toCreate: typeof childTemplates = [];
-
-        for (const child of childTemplates) {
-            const existing = existingMap.get(child._id.toString());
-            if (!existing) {
-                toCreate.push(child);
-            } else if (!existing.isActive) {
-                toReactivate.push(existing._id);
-                toReactivateWithTemplate.push({
-                    id: existing._id,
-                    templateId: child._id,
-                });
-            }
-            // already active → skip silently
-        }
-
-        if (!toReactivate.length && !toCreate.length) {
-            throw new BadRequestError('You have already added all habits from this group.');
-        }
-
-        // Reactivate soft-deleted habits
-        if (toReactivate.length) {
-            await UserHabit.updateMany(
-                { _id: { $in: toReactivate } },
-                { $set: { isActive: true, startDate: new Date() } },
-            );
-
-            // Today log check
-            const existingLogs = await HabitLog.find({
-                userHabit: { $in: toReactivate },
-                date: String(date),
-            }).select('userHabit status').lean();
-
-            const existingLogMap = new Map<string, any>(
-                existingLogs.map((l: any) => [l.userHabit?.toString(), l]),
-            );
-
-            const logsToInsert: Types.ObjectId[] = [];
-
-            for (const id of toReactivate) {
-                const existingLog = existingLogMap.get(id.toString());
-                if (!existingLog) {
-                    logsToInsert.push(id);
-                } else if (existingLog.status === 'Skipped') {
-                    await HabitLog.updateOne(
-                        { userHabit: id, date: String(date) },
-                        { $set: { status: 'Pending', skippedAt: null } },
-                    );
-                }
-            }
-
-            if (logsToInsert.length) {
-                await HabitLog.insertMany(
-                    logsToInsert.map(id => ({
-                        user: userId,
-                        userHabit: id,
-                        date: String(date),
-                        status: 'Pending',
-                    })),
-                );
-            }
-
-
-            const reactivatedTemplates = await HabitTemplate.find({
-                _id: { $in: toReactivateWithTemplate.map(r => r.templateId) },
-            }).select('_id parent').lean();
-
-            const reactivatedTemplateMap = new Map<string, any>(
-                reactivatedTemplates.map((t: any) => [t._id.toString(), t]),
-            );
-
-            for (const { id, templateId } of toReactivateWithTemplate) {
-                const tmpl = reactivatedTemplateMap.get(templateId.toString());
-                if (tmpl?.parent) {
-                    await connectToParent(userId, tmpl.parent, id);
-                }
-            }
-        }
-
-
-        // Brand new habits create (with parent check)
-        const skippedNames: string[] = [];
-        const canAdd: typeof toCreate = [];
-
-        for (const child of toCreate) {
-            if (child.parent) {
-                const parentActive = await UserHabit.exists({
-                    user: userId,
-                    template: child.parent,
-                    isActive: true,
-                });
-
-                if (!parentActive) {
-                    skippedNames.push(child.name);
-                    continue;
-                }
-            }
-            canAdd.push(child);
-        }
-
-        if (!canAdd.length && !toReactivate.length) {
-            throw new BadRequestError(
-                `Activate the obligatory prayers first to unlock: ${skippedNames.join(', ')}`,
-            );
-        }
-
-        let newHabits: any[] = [];
-        if (canAdd.length) {
-
-            const payloads = canAdd.map(t => buildHabitPayload(userId, t));
-            newHabits = await UserHabit.insertMany(payloads);
-
-            await HabitLog.insertMany(
-                newHabits.map(h => ({
-                    user: userId,
-                    userHabit: h._id,
-                    date: String(date),
-                    status: 'Pending',
-                })),
-            );
-
-            for (let i = 0; i < newHabits.length; i++) {
-                const tmpl = canAdd[i];
-                if (tmpl.parent) {
-                    await connectToParent(userId, tmpl.parent, newHabits[i]._id);
-                }
-            }
-        }
-
-        return {
-            added: newHabits.map(h => ({ _id: h._id, name: h.name })),
-            reactivated: toReactivate.map(id => ({ _id: id })),
-            skipped: skippedNames.length
-                ? `${skippedNames.join(', ')} skipped — activate the required habits first`
-                : null,
-        };
+    if (!template.isActive) {
+        throw new BadRequestError('This habit is no longer available');
     }
 
-    // ── CASE 1.5: Connected-obligatory activate (e.g. Adhkar after prayer → one instance per obligatory prayer) ──
+    const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
+
+    if (childTemplates.length > 0) {
+        return activateGroupHabit(userId, childTemplates, date);
+    }
+
     if (template.isConnectedObligatory) {
-        const obligatoryPrayers = await UserHabit.find({
-            user: userId,
-            connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'] },
-        }).select('_id isActive template connectedPrayer').lean();
-
-        if (!obligatoryPrayers.length) {
-            throw new BadRequestError('Activate the obligatory prayers first to unlock this habit.');
-        }
-
-        // Only attach to prayers that are currently active
-        const activePrayers = obligatoryPrayers.filter(
-            (p): p is typeof p & { template: Types.ObjectId } => p.isActive && !!p.template,
-        );
-
-        if (!activePrayers.length) {
-            throw new BadRequestError('Activate the obligatory prayers first to unlock this habit.');
-        }
-
-        // Existing instances of this exact template for this user, keyed by parent prayer id
-        const existingInstances = await UserHabit.find({
-            user: userId,
-            template: habitId,
-        }).select('_id isActive parent connectedPrayer').lean();
-
-        const existingByParent = new Map(
-            existingInstances.map(h => [h.parent?.toString(), h]),
-        );
-
-        const toReactivate: Types.ObjectId[] = [];
-        const toReactivateWithPrayer: { id: Types.ObjectId; prayerTemplateId: Types.ObjectId }[] = [];
-        const toCreateForPrayers: typeof activePrayers = [];
-
-        for (const prayer of activePrayers) {
-            const existing = existingByParent.get(prayer._id.toString());
-            if (!existing) {
-                toCreateForPrayers.push(prayer);
-            } else if (!existing.isActive) {
-                toReactivate.push(existing._id);
-                toReactivateWithPrayer.push({ id: existing._id, prayerTemplateId: prayer.template });
-            }
-            // already active for this prayer → skip silently
-        }
-
-        if (!toReactivate.length && !toCreateForPrayers.length) {
-            throw new BadRequestError('habit is already activated.');
-        }
-
-        // Reactivate soft-deleted instances
-        if (toReactivate.length) {
-            await UserHabit.updateMany(
-                { _id: { $in: toReactivate } },
-                { $set: { isActive: true, startDate: new Date() } },
-            );
-
-            const existingLogs = await HabitLog.find({
-                userHabit: { $in: toReactivate },
-                date: String(date),
-            }).select('userHabit status').lean();
-
-            const existingLogMap = new Map<string, any>(
-                existingLogs.map((l: any) => [l.userHabit?.toString(), l]),
-            );
-
-            const logsToInsert: Types.ObjectId[] = [];
-
-            for (const id of toReactivate) {
-                const existingLog = existingLogMap.get(id.toString());
-                if (!existingLog) {
-                    logsToInsert.push(id);
-                } else if (existingLog.status === 'Skipped') {
-                    await HabitLog.updateOne(
-                        { userHabit: id, date: String(date) },
-                        { $set: { status: 'Pending', skippedAt: null } },
-                    );
-                }
-            }
-
-            if (logsToInsert.length) {
-                await HabitLog.insertMany(
-                    logsToInsert.map(id => ({
-                        user: userId,
-                        userHabit: id,
-                        date: String(date),
-                        status: 'Pending',
-                    })),
-                );
-            }
-
-            for (const { id, prayerTemplateId } of toReactivateWithPrayer) {
-                await connectToParent(userId, prayerTemplateId, id);
-            }
-        }
-        console.log({ toCreateForPrayers })
-        // Create a fresh instance for every prayer that doesn't already have one
-        let newHabits: any[] = [];
-        if (toCreateForPrayers.length) {
-            const payloads = toCreateForPrayers.map(() => buildHabitPayload(userId, template));
-            const updatedPayloads = payloads.map((p, index) => ({
-                ...p,
-                parent: toCreateForPrayers[index]._id,
-                connectedPrayer: toCreateForPrayers[index].connectedPrayer ?? null,
-            }));
-            newHabits = await UserHabit.insertMany(updatedPayloads);
-
-            await HabitLog.insertMany(
-                newHabits.map(h => ({
-                    user: userId,
-                    userHabit: h._id,
-                    date: String(date),
-                    status: 'Pending',
-                })),
-            );
-
-            for (let i = 0; i < newHabits.length; i++) {
-                await connectToParent(userId, toCreateForPrayers[i].template, newHabits[i]._id);
-            }
-        }
-
-        return {
-            added: newHabits.map(h => ({ _id: h._id, name: h.name })),
-            reactivated: toReactivate.map(id => ({ _id: id })),
-            skipped: null,
-        };
+        return activateConnectedObligatoryHabit(userId, template, habitId, date);
     }
 
-    // ── CASE 2: Single activate ──
-    const existingHabit = await UserHabit.findOne({
-        user: userId,
-        template: habitId,
-    });
-
-    if (existingHabit) {
-        if (existingHabit.isActive) {
-            throw new BadRequestError('habit is already activated.');
-        }
-
-        // Check Parent active
-        if (template.parent) {
-            const parentActive = await UserHabit.exists({
-                user: userId,
-                template: template.parent,
-                isActive: true,
-            });
-
-            if (!parentActive) {
-                throw new BadRequestError(
-                    'Activate the required habit first to unlock this habit.',
-                );
-            }
-        }
-
-        existingHabit.isActive = true;
-        existingHabit.startDate = new Date();
-        await existingHabit.save();
-
-        // Log handle
-        const existingLog = await HabitLog.findOne({
-            userHabit: existingHabit._id,
-            date: String(date),
-        });
-
-        if (existingLog) {
-            if (existingLog.status === 'Skipped') {
-                existingLog.status = 'Pending';
-                existingLog.skippedAt = null;
-                await existingLog.save();
-            }
-        } else {
-            await HabitLog.create({
-                user: userId,
-                userHabit: existingHabit._id,
-                date: String(date),
-                status: 'Pending',
-            });
-        }
-
-        // reconnect to parent habits
-        if (template.parent) {
-            await connectToParent(userId, template.parent, existingHabit._id);
-        }
-
-        return { added: [{ _id: existingHabit._id, name: existingHabit.name }], skipped: null };
-    }
-
-    // No existing habit — create fresh
-    if (template.parent) {
-        const parentActive = await UserHabit.exists({
-            user: userId,
-            template: template.parent,
-            isActive: true,
-        });
-
-        if (!parentActive) {
-            throw new BadRequestError(
-                'Activate the required habit first to unlock this habit.',
-            );
-        }
-    }
-
-    // Cast to any to satisfy Mongoose create overload typing when payload contains nullable fields
-    const newHabit = await UserHabit.create(buildHabitPayload(userId, template) as any);
-
-    await HabitLog.create({
-        user: userId,
-        userHabit: newHabit._id,
-        date: String(date),
-        status: 'Pending',
-    });
-
-    // Connect to the parent's connectedHabits
-    if (template.parent) {
-        await connectToParent(userId, template.parent, newHabit._id);
-    }
-
-    return { added: [{ _id: newHabit._id, name: newHabit.name }], skipped: null };
+    return activateSingleHabit(userId, template, habitId, date);
 };
 
 
@@ -1029,8 +441,8 @@ const getTodayHabits = async (user: IUser, category?: string) => {
                     category: childDisplay.category,
                     infoContent: childDisplay.infoContent,
                     pdfContent: childDisplay.pdfContent,
-                    hasAdhkarSet: childDisplay.hasAdhkarSet,
-                    hasQuranContent: childDisplay.hasQuranContent,
+                    adhkarSet: childDisplay.hasAdhkarSet,
+                    quranContent: childDisplay.hasQuranContent,
                     customDetails: child?.customDetails ?? null,
                     order: c.order,
                     status: logMap.get(childId) ?? 'Pending',
@@ -1125,7 +537,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         user: userId,
         isActive: true,
     });
-    if (!habit) throw new NotFoundError('Habit not found');
+    if (!habit) throw new NotFoundError('Habit not found or deactivated');
 
     if (!habit.isPreBuilt) {
         habit.name = payload.name ?? habit.name;
@@ -1166,8 +578,14 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         habit.customDetails = payload.customDetails;
     }
 
+    console.log(habit.connectedPrayer)
+
     if (payload.connectedPrayer !== undefined && payload.connectedPrayer !== habit.connectedPrayer) {
+        console.log("access block")
         // check if the connected prayer habit exists for this user
+        if (!['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'].includes(payload.connectedPrayer as string)) {
+            throw new BadRequestError('Only obligatory prayers can have connected habits');
+        }
         const connectHabit = await UserHabit.findOne({
             user: userId,
             connectedPrayer: payload.connectedPrayer,
@@ -1218,6 +636,8 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
     }
 
     if (payload.connectedHabits && payload.connectedHabits.length > 0) {
+
+
         if (habit.connectedPrayer?.includes('Fajr') || habit.connectedPrayer?.includes('Dhuhr') || habit.connectedPrayer?.includes('Asr') || habit.connectedPrayer?.includes('Maghrib') || habit.connectedPrayer?.includes('Isha')) {
             throw new BadRequestError('Only obligatory prayers can have connected habits');
         }
@@ -1292,54 +712,9 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 };
 
 
-// Get Habit Detail
-// const getHabitDetail = async (user: IUser, userHabitId: string) => {
-//     const userId = user._id as Types.ObjectId;
-
-//     const habit = await UserHabit.findOne({
-//         _id: userHabitId,
-//         user: userId,
-//         isActive: true,
-//     })
-//         .populate({
-//             path: 'connectedHabits.userHabit',
-//             select: '_id name category habitType isLocked',
-//         })
-//         .lean();
-//     if (!habit) throw new NotFoundError('Habit not found or habit is not active');
-
-//     const isObligatoryPrayer = habit.habitType === HABIT_TYPES.OBLIGATORY_PRAYER;
-
-//     return {
-//         _id: habit._id,
-//         name: habit.name,
-//         category: habit.category,
-//         habitType: habit.habitType,
-//         connectedPrayer: habit.connectedPrayer ?? null,
-//         isPrayerLocked: habit.isPrayerLocked ?? false,
-//         location: habit.location ?? null,
-//         frequency: habit.frequency,
-//         isPreBuilt: habit.isPreBuilt,
-//         allowedFrequencies: habit.allowedFrequencies,
-//         allowedConnectedPrayers: habit.allowConnectedPrayers ?? null,
-//         reminder: habit.reminder,
-//         startDate: habit.startDate,
-//         showOnTodayScreen: habit.showOnTodayScreen,
-//         isLocked: habit.isLocked,
-//         customDetails: habit.customDetails ?? null,
-//         connectedHabits: isObligatoryPrayer
-//             ? (habit.connectedHabits ?? [])
-//                 .sort((a, b) => a.order - b.order)
-//                 .map((c: any) => ({
-//                     _id: c.userHabit?._id ?? c.userHabit,
-//                     name: c.userHabit?.name ?? null,
-//                     category: c.userHabit?.category ?? null,
-//                     habitType: c.userHabit?.habitType ?? null,
-//                     isLocked: c.userHabit?.isLocked ?? false,
-//                 }))
-//             : undefined,
-//     };
-// };
+// ─────────────────────────────────────────────────────────────
+//  get habit detail
+// ─────────────────────────────────────────────────────────────
 
 const resolveHabitDetailDisplay = (h: any) => {
     const template = h.template as any | null | undefined;
@@ -1369,42 +744,38 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
         user: userId,
         isActive: true,
     })
-        .populate({ path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' })
+        .populate({ path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked prayerCustomizedAt isLocked allowConnectedPrayers updatedAt frequencyCustomizedAt' })
         .populate({
             path: 'connectedHabits.userHabit',
             select: '_id name category template habitType isLocked',
-            populate: { path: 'template', select: 'name category habitType  connectedPrayer isPrayerLocked isLocked allowConnectedPrayers updatedAt' },
+            populate: { path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked prayerCustomizedAt isLocked allowConnectedPrayers updatedAt frequencyCustomizedAt' },
         })
         .lean();
 
-    console.log({ habit })
     if (!habit) throw new NotFoundError('Habit not found or habit is not active');
 
     // ── Validate the user's customized connectedPrayer against the template's
     //    current allowConnectedPrayers — admin may have removed it since ──
     const template = habit.template as any | null | undefined;
     const isPrayerLocked = template?.isPrayerLocked ?? true;
-    if (!isPrayerLocked && habit.prayerCustomizedAt && habit.connectedPrayer) {
-        const templateChangedSinceSync =
-            !!template?.updatedAt && new Date(template.updatedAt) > new Date(habit.prayerCustomizedAt);
+    if (!isPrayerLocked && (habit?.prayerCustomizedAt && habit.prayerCustomizedAt < template?.prayerCustomizedAt) && habit.connectedPrayer) {
 
-        if (templateChangedSinceSync) {
-            const allowedPrayers: string[] = template?.allowConnectedPrayers ?? [];
-            const stillAllowed = allowedPrayers.includes(habit.connectedPrayer);
+        const allowedPrayers: string[] = template?.allowConnectedPrayers ?? [];
+        const stillAllowed = allowedPrayers.includes(habit.connectedPrayer);
 
-            if (!stillAllowed) {
-                await UserHabit.updateOne(
-                    { _id: habit._id },
-                    { $set: { connectedPrayer: null, prayerCustomizedAt: null, parent: null } },
-                );
+        if (!stillAllowed) {
+            await UserHabit.updateOne(
+                { _id: habit._id },
+                { $set: { connectedPrayer: null, prayerCustomizedAt: new Date(), parent: null } },
+            );
 
-                await disconnectFromParents(habit._id);
+            await disconnectFromParents(habit._id);
 
-                // Reflect the reset locally so the response below is accurate
-                (habit as any).connectedPrayer = null;
-                (habit as any).prayerCustomizedAt = new Date();
-            }
+            // Reflect the reset locally so the response below is accurate
+            (habit as any).connectedPrayer = null;
+            (habit as any).prayerCustomizedAt = new Date();
         }
+
     }
 
     const display = resolveHabitDetailDisplay(habit);
@@ -1437,8 +808,6 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
                     return {
                         _id: child?._id ?? c.userHabit,
                         name: childDisplay.name,
-                        category: childDisplay.category,
-                        habitType: childDisplay.habitType,
                         isLocked: childDisplay.isLocked,
                     };
                 })
@@ -1486,14 +855,20 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
         isActive: true,
 
     });
-   
-        if (payload.connectedPrayer !== undefined) {
+
+
+    if (payload.connectedPrayer !== undefined) {
         // check if the connected prayer habit exists for this user
+
+        if (!['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'].includes(payload.connectedPrayer as string)) {
+            throw new BadRequestError('Only obligatory prayers can have connected habits');
+        }
+
         const connectHabit = await UserHabit.findOne({
             user: userId,
             connectedPrayer: payload.connectedPrayer,
         });
-        
+
         console.log({ connectHabit })
 
         if (!connectHabit) {
@@ -1502,7 +877,7 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
 
         // Reload target parent so ordering is calculated from the latest state.
         const refreshedConnectHabit = await UserHabit.findById(connectHabit._id);
-        
+
         console.log({ refreshedConnectHabit })
         if (!refreshedConnectHabit) {
             throw new NotFoundError('Connected prayer habit not found');
@@ -1629,6 +1004,7 @@ const searchHabitsToConnect = async (
     }));
 };
 
+// delete custom habit
 const deleteCustomHabit = async (user: IUser, habitId: string) => {
 
     const habit = await UserHabit.findById(habitId).select('_id user isPreBuilt');
