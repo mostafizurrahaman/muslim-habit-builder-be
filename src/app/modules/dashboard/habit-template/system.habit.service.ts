@@ -317,15 +317,6 @@ const updateSystemHabit = async (
     // If admin is changing allowConnectedPrayers, stamp prayerCustomizedAt so
     // users with a customized connectedPrayer get re-validated against the
     // new list (see getHabitDetail).
-    const allowConnectedPrayersChanged =
-        safePayload.allowConnectedPrayers !== undefined &&
-        JSON.stringify([...safePayload.allowConnectedPrayers].sort()) !==
-        JSON.stringify([...(habit.allowConnectedPrayers ?? [])].sort());
-    
-    const allowFrequenciesChanged =
-        safePayload.allowedFrequencies !== undefined &&
-        JSON.stringify([...safePayload.allowedFrequencies].sort()) !==
-        JSON.stringify([...(habit.allowedFrequencies ?? [])].sort());
 
     let pdfUrl: string | null = null;
 
@@ -337,8 +328,6 @@ const updateSystemHabit = async (
     const updatedPayload: any = {
         ...safePayload,
         pdfContent: pdfUrl || habit.pdfContent, // If new PDF is uploaded, use its URL; otherwise, keep the existing one
-        ...(allowConnectedPrayersChanged && { prayerCustomizedAt: new Date() }),
-        ...(allowFrequenciesChanged && { frequencyCustomizedAt: new Date() }),
     };
 
     try {

@@ -40,7 +40,6 @@ export interface IUserHabit {
   customDetails?: string | null;
   isActive: boolean;
   progressRestartedAt?: Date | null;
-  prayerCustomizedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

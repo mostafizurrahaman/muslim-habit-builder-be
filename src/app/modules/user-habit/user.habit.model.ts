@@ -136,11 +136,6 @@ const userHabitSchema = new Schema<IUserHabit>(
       type: Date,
       default: null,
     },
-
-    prayerCustomizedAt: {
-      type: Date,
-      default: null,
-    },
   },
   {
     timestamps: true,

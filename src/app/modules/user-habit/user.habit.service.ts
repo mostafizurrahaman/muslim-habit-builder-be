@@ -1,10 +1,9 @@
 import moment from 'moment-timezone';
 import mongoose, { Types } from 'mongoose';
-import { ConnectedPrayer } from '../../../interfaces';
+import { AllowedConnectedPrayer, ConnectedPrayer } from '../../../interfaces';
 import { BadRequestError, NotFoundError } from '../../errors/request/apiError';
-
 import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
-import { HABIT_TYPES } from '../dashboard/habit-template/system.habit.constant';
+import { HABIT_TYPES, OBLIGATORY_PRAYER } from '../dashboard/habit-template/system.habit.constant';
 import { IHabitTemplate } from '../dashboard/habit-template/system.habit.interface';
 import { HabitTemplate } from '../dashboard/habit-template/system.habit.model';
 import { QuranContent } from '../dashboard/quran-content/quran.content.model';
@@ -13,7 +12,7 @@ import { HabitLog } from '../habit-logger/habit.logger.model';
 import { IUser } from '../user/user.interface';
 import { FREQUENCY_TYPES, WeekDay } from './user.habit.constant';
 import { activateConnectedObligatoryHabit, activateCustomHabit, activateGroupHabit, activateSingleHabit, deactivateConnectedObligatoryHabit, deactivateGroupHabit, deactivateSingleHabit, disconnectFromParents } from './user.habit.helper';
-import { IFrequency } from './user.habit.interface';
+import { IFrequency, IUserHabit } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
 import { buildDateBasedOnTimeZone } from './user.habit.utils';
 import { AddCustomHabitPayload, EditHabitPayload } from './user.habit.zod';
@@ -530,15 +529,21 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 //  EditHabit — connectedHabits comes as string[], and order is set from the index
 // ─────────────────────────────────────────────────────────────
 const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHabitPayload) => {
+
     const userId = user._id as Types.ObjectId;
-    console.log({ habitPayload: payload });
+
     const habit = await UserHabit.findOne({
         _id: userHabitId,
         user: userId,
         isActive: true,
+    }).populate<{ template: IHabitTemplate | null }>({
+        path: 'template',
+        select: 'allowConnectedPrayers isPrayerLocked connectedPrayer',
     });
+
     if (!habit) throw new NotFoundError('Habit not found or deactivated');
 
+    // ── Fields only a custom (non-prebuilt) habit's owner can edit ──
     if (!habit.isPreBuilt) {
         habit.name = payload.name ?? habit.name;
         habit.connectedPrayer = (payload.connectedPrayer as ConnectedPrayer) ?? habit.connectedPrayer;
@@ -557,7 +562,6 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 
     // Reminder
     if (payload.reminder !== undefined) habit.reminder = payload.reminder as any;
-
 
     // StartDate
     if (payload.startDate !== undefined) {
@@ -578,14 +582,23 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         habit.customDetails = payload.customDetails;
     }
 
-    console.log(habit.connectedPrayer)
+    // ── connectedPrayer change → reconnect this habit under its new parent prayer ──
+    // Custom habits (template: null) are always effectively unlocked — the
+    // user owns the habit, so they always control its connectedPrayer.
+    // Template-based habits use the template's own isPrayerLocked setting.
+    const effectiveIsPrayerLocked = habit.isPreBuilt ? (habit.template?.isPrayerLocked ?? true) : false;
 
-    if (payload.connectedPrayer !== undefined && payload.connectedPrayer !== habit.connectedPrayer) {
-        console.log("access block")
-        // check if the connected prayer habit exists for this user
-        if (!['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'].includes(payload.connectedPrayer as string)) {
-            throw new BadRequestError('Only obligatory prayers can have connected habits');
+    if (!effectiveIsPrayerLocked && payload.connectedPrayer !== undefined) {
+
+        // Only template-based habits have a restriction list to validate
+        // against — custom habits are unrestricted (any prayer is allowed).
+        if (
+            habit.template?.allowConnectedPrayers &&
+            !habit.template.allowConnectedPrayers.includes(payload.connectedPrayer as AllowedConnectedPrayer)
+        ) {
+            throw new BadRequestError('This connected prayer is not allowed for this habit');
         }
+
         const connectHabit = await UserHabit.findOne({
             user: userId,
             connectedPrayer: payload.connectedPrayer,
@@ -635,8 +648,8 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         await refreshedConnectHabit.save();
     }
 
+    // ── connectedHabits list change (this habit acting as a parent) ──
     if (payload.connectedHabits && payload.connectedHabits.length > 0) {
-
 
         if (habit.connectedPrayer?.includes('Fajr') || habit.connectedPrayer?.includes('Dhuhr') || habit.connectedPrayer?.includes('Asr') || habit.connectedPrayer?.includes('Maghrib') || habit.connectedPrayer?.includes('Isha')) {
             throw new BadRequestError('Only obligatory prayers can have connected habits');
@@ -661,7 +674,6 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
             );
         }
 
-
         // 3. Handle Additions & Validations
         if (uniqueNewIds.length) {
             const validHabits = await UserHabit.find({
@@ -674,10 +686,13 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
                 throw new BadRequestError('One or more connected habits are invalid or inactive');
             }
 
-            // Set parent template for new additions
+            // Set parent template for new additions.
+            // NOTE: `habit.template` may be null for custom habits acting as
+            // a parent (unusual, but guarded here so we never write an
+            // invalid/undefined value).
             await UserHabit.updateMany(
                 { _id: { $in: uniqueNewIds }, user: userId },
-                { $set: { parent: habit.template } },
+                { $set: { parent: habit.template?._id ?? null } },
             );
         }
 
@@ -744,38 +759,85 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
         user: userId,
         isActive: true,
     })
-        .populate({ path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked prayerCustomizedAt isLocked allowConnectedPrayers updatedAt frequencyCustomizedAt' })
+        .populate({
+            path: 'template',
+            select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency',
+        })
         .populate({
             path: 'connectedHabits.userHabit',
-            select: '_id name category template habitType isLocked',
-            populate: { path: 'template', select: 'name category habitType connectedPrayer isPrayerLocked prayerCustomizedAt isLocked allowConnectedPrayers updatedAt frequencyCustomizedAt' },
+            select: '_id name category template habitType isLocked allowConnectedPrayers allowedFrequencies frequency',
+            populate: {
+                path: 'template',
+                select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency',
+            },
         })
         .lean();
 
+    console.log({ habit })
+
     if (!habit) throw new NotFoundError('Habit not found or habit is not active');
 
-    // ── Validate the user's customized connectedPrayer against the template's
-    //    current allowConnectedPrayers — admin may have removed it since ──
     const template = habit.template as any | null | undefined;
-    const isPrayerLocked = template?.isPrayerLocked ?? true;
-    if (!isPrayerLocked && (habit?.prayerCustomizedAt && habit.prayerCustomizedAt < template?.prayerCustomizedAt) && habit.connectedPrayer) {
 
-        const allowedPrayers: string[] = template?.allowConnectedPrayers ?? [];
+    const isPrayerLocked = habit.isPreBuilt ? (template?.isPrayerLocked ?? true) : false;
+
+    const allowedPrayers: string[] = template
+        ? template?.allowConnectedPrayers ?? []
+        : Object.values(OBLIGATORY_PRAYER) as string[];
+    const allowedFrequencies: string[] = template?.allowedFrequencies ?? habit.allowedFrequencies ?? [];
+
+
+    if (template) {
+        const storedFrequenciesMatch =
+            JSON.stringify([...(habit.allowedFrequencies ?? [])].sort()) ===
+            JSON.stringify([...allowedFrequencies].sort());
+
+        if (!storedFrequenciesMatch) {
+            await UserHabit.updateOne({ _id: habit._id }, { $set: { allowedFrequencies } });
+            (habit as any).allowedFrequencies = allowedFrequencies;
+        }
+    }
+
+    if (!isPrayerLocked && habit.connectedPrayer && template) {
         const stillAllowed = allowedPrayers.includes(habit.connectedPrayer);
 
         if (!stillAllowed) {
             await UserHabit.updateOne(
                 { _id: habit._id },
-                { $set: { connectedPrayer: null, prayerCustomizedAt: new Date(), parent: null } },
+                { $set: { connectedPrayer: null, parent: null } },
             );
 
             await disconnectFromParents(habit._id);
 
-            // Reflect the reset locally so the response below is accurate
-            (habit as any).connectedPrayer = null;
-            (habit as any).prayerCustomizedAt = new Date();
+            (habit as IUserHabit).connectedPrayer = null;
         }
+    }
 
+
+    if (habit.frequency?.type && !allowedFrequencies.includes(habit.frequency.type)) {
+        const defaultType = template?.defaultFrequency?.type;
+        const defaultIsValid = !!defaultType && allowedFrequencies.includes(defaultType);
+
+        const fallbackFrequency = defaultIsValid
+            ? {
+                type: defaultType,
+                selectedDays: template?.defaultFrequency?.selectedDays ?? [],
+                everyNDays: template?.defaultFrequency?.everyNDays,
+            }
+            : {
+                // defaultFrequency itself is invalid too — use the first
+                // allowed type as a guaranteed-valid safe fallback
+                type: allowedFrequencies[0] ?? FREQUENCY_TYPES.DAILY,
+                selectedDays: [],
+                everyNDays: allowedFrequencies[0] === FREQUENCY_TYPES.EVERY_N_DAYS ? 1 : undefined,
+            };
+
+        await UserHabit.updateOne(
+            { _id: habit._id },
+            { $set: { frequency: fallbackFrequency } },
+        );
+
+        (habit as IUserHabit).frequency = fallbackFrequency;
     }
 
     const display = resolveHabitDetailDisplay(habit);
@@ -785,13 +847,13 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
         _id: habit._id,
         name: display.name,
         category: display.category,
-        connectedPrayer: display.connectedPrayer,
-        isPrayerLocked: !habit.isPreBuilt ? Boolean(false) : display.isPrayerLocked,
+        connectedPrayer: isPrayerLocked ? template?.connectedPrayer ?? null : habit.connectedPrayer ?? null,
+        isPrayerLocked,
         location: habit.location ?? null,
         frequency: habit.frequency,
         isPreBuilt: habit.isPreBuilt,
-        allowedFrequencies: habit.allowedFrequencies,
-        allowedConnectedPrayers: display.allowedConnectedPrayers,
+        allowedFrequencies,
+        allowedConnectedPrayers: allowedPrayers,
         reminder: habit.reminder,
         startDate: habit.startDate,
         showOnTodayScreen: habit.showOnTodayScreen,

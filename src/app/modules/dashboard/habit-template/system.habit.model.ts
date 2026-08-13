@@ -157,14 +157,6 @@ const habitTemplateSchema = new Schema<IHabitTemplate>(
       type: Boolean,
       default: true
     },
-    prayerCustomizedAt: {
-      type: Date,
-      default: Date.now(),
-    },
-    frequencyCustomizedAt: {
-      type: Date,
-      default: Date.now(),
-    },
   },
   {
     timestamps: true,
