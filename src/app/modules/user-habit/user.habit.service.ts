@@ -91,6 +91,44 @@ const STATUS_ORDER: Record<string, number> = {
     Skipped: 2,
 };
 
+const toIdString = (value: unknown): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (value instanceof Types.ObjectId) return value.toString();
+    if (typeof value === 'object' && value !== null && '_id' in value) {
+        return toIdString((value as { _id: unknown })._id);
+    }
+    if (typeof (value as { toString?: () => string }).toString === 'function') {
+        const asString = (value as { toString: () => string }).toString();
+        return asString === '[object Object]' ? null : asString;
+    }
+    return null;
+};
+
+/** Nested children (e.g. Adhkar after prayer) must appear once per parent. */
+const dedupeConnectedChildren = <T extends { userHabit?: unknown }>(children: T[]): T[] => {
+    const seenIds = new Set<string>();
+    const seenTemplates = new Set<string>();
+    const unique: T[] = [];
+
+    for (const child of children) {
+        const nested = child.userHabit as { _id?: unknown; template?: unknown } | string | null | undefined;
+        const childId = toIdString(nested);
+        if (!childId || seenIds.has(childId)) continue;
+
+        const templateId = nested && typeof nested === 'object'
+            ? toIdString(nested.template)
+            : null;
+        if (templateId && seenTemplates.has(templateId)) continue;
+
+        seenIds.add(childId);
+        if (templateId) seenTemplates.add(templateId);
+        unique.push(child);
+    }
+
+    return unique;
+};
+
 // get today habits
 // const getTodayHabits = async (user: IUser, category?: string) => {
 //     const userId = user._id as Types.ObjectId;
@@ -319,22 +357,25 @@ const getTodayHabits = async (user: IUser, category?: string) => {
         .format('ddd')
         .toLowerCase() as WeekDay;
 
-    // ── Collect connected habit IDs — they should not show at the top level ──
+    // Nested habits (connectedHabits or parent set) must not also appear as top-level rows.
     const allActiveHabits = await UserHabit.find({
         user: userId,
         isActive: true,
-    }).select('_id connectedHabits').lean();
+    }).select('_id parent connectedHabits').lean();
 
-    const connectedHabitIds = new Set(
-        allActiveHabits
-            .flatMap(h => (h.connectedHabits ?? []).map((c: any) => c.userHabit?.toString()))
-            .filter((id): id is string => Boolean(id)),
-    );
+    const nestedHabitIds = new Set<string>();
+    for (const h of allActiveHabits) {
+        if (h.parent) nestedHabitIds.add(h._id.toString());
+        for (const c of h.connectedHabits ?? []) {
+            const id = toIdString(c.userHabit);
+            if (id) nestedHabitIds.add(id);
+        }
+    }
 
     const filter: any = {
         user: userId,
         isActive: true,
-        _id: { $nin: [...connectedHabitIds] },
+        _id: { $nin: [...nestedHabitIds] },
     };
 
     if (category && category.toLowerCase() !== 'all') {
@@ -346,8 +387,8 @@ const getTodayHabits = async (user: IUser, category?: string) => {
         .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent' })
         .populate({
             path: 'connectedHabits.userHabit',
-            select: '_id name category customDetails template connectedPrayer',
-            populate: { path: 'template', select: 'name category infoContent pdfContent adhkarSet quranContent' },
+            select: '_id name category customDetails template connectedPrayer frequency startDate',
+            populate: { path: 'template', select: '_id name category habitType infoContent pdfContent adhkarSet quranContent' },
         })
         .sort({ displayOrder: 1 })
         .lean();
@@ -379,17 +420,27 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
     const todayHabits = habits.filter(h => shouldShowToday(h.frequency, h.startDate));
 
+    // Pre-built templates only appear once at top level (duplicate Adhkar clones).
+    const seenTopLevelTemplates = new Set<string>();
+    const uniqueTodayHabits = todayHabits.filter(h => {
+        const templateId = toIdString((h as { template?: unknown }).template);
+        if (!templateId) return true;
+        if (seenTopLevelTemplates.has(templateId)) return false;
+        seenTopLevelTemplates.add(templateId);
+        return true;
+    });
+
     // ── Log IDs collect ───────────────────────────────────────
 
-    const allUserHabitIds = todayHabits.map(h => h._id);
+    const allUserHabitIds = uniqueTodayHabits.map(h => h._id);
 
-    const connectedIds = todayHabits.flatMap(h =>
-        (h.connectedHabits ?? [])
-            .filter((c: any) => {
+    const connectedIds = uniqueTodayHabits.flatMap(h =>
+        dedupeConnectedChildren(
+            (h.connectedHabits ?? []).filter((c: any) => {
                 const child = c.userHabit;
                 return child?.frequency ? shouldShowToday(child.frequency, child.startDate) : true;
-            })
-            .map((c: any) => c.userHabit?._id ?? c.userHabit),
+            }),
+        ).map((c: any) => c.userHabit?._id ?? c.userHabit),
     );
 
     const allIds = [...allUserHabitIds, ...connectedIds].filter(id => Boolean(id));
@@ -421,14 +472,24 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
     // ── Response build ────────────────────────────────────────
 
-    const result = todayHabits.map(h => {
-        const connectedHabits = (h.connectedHabits ?? [])
+    const seenNestedChildIds = new Set<string>();
+
+    const result = uniqueTodayHabits.map(h => {
+        const connectedHabits = dedupeConnectedChildren(
+            (h.connectedHabits ?? [])
+                .filter((c: any) => {
+                    const child = c.userHabit;
+                    return child?.frequency ? shouldShowToday(child.frequency, child.startDate) : true;
+                })
+                .filter((c: any) => Boolean(c.userHabit))
+                .sort((a: any, b: any) => a.order - b.order),
+        )
             .filter((c: any) => {
-                const child = c.userHabit;
-                return child?.frequency ? shouldShowToday(child.frequency, child.startDate) : true;
+                const childId = toIdString(c.userHabit);
+                if (!childId || seenNestedChildIds.has(childId)) return false;
+                seenNestedChildIds.add(childId);
+                return true;
             })
-            .filter((c: any) => Boolean(c.userHabit))
-            .sort((a: any, b: any) => a.order - b.order)
             .map((c: any) => {
                 const child = c.userHabit;
                 const childId = child?._id?.toString() ?? c.userHabit?.toString();
@@ -761,14 +822,14 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
     })
         .populate({
             path: 'template',
-            select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency',
+            select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency infoContent pdfContent adhkarSet quranContent',
         })
         .populate({
             path: 'connectedHabits.userHabit',
             select: '_id name category template habitType isLocked allowConnectedPrayers allowedFrequencies frequency',
             populate: {
                 path: 'template',
-                select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency',
+                select: 'name category habitType connectedPrayer isPrayerLocked isLocked allowConnectedPrayers allowedFrequencies defaultFrequency infoContent pdfContent adhkarSet quranContent',
             },
         })
         .lean();
@@ -860,6 +921,10 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
         targetType: habit.targetType ?? null,
         targetDescription: habit.targetDescription ?? null,
         customDetails: habit.customDetails ?? null,
+        infoContent: display.infoContent,
+        pdfContent: display.pdfContent,
+        hasAdhkarSet: display.hasAdhkarSet,
+        hasQuranContent: display.hasQuranContent,
         connectedHabits: isObligatoryPrayer
             ? (habit.connectedHabits ?? [])
                 .sort((a, b) => a.order - b.order)
@@ -1192,31 +1257,42 @@ const skippedHabit = async (user: IUser, habitId: string) => {
 // get content
 const getDynamicHabitContent = async (user: IUser, habitId: string) => {
 
-    const habit = await UserHabit.findOne({ _id: habitId, user: user._id }).populate<{ template: IHabitTemplate }>('template', 'adhkarSet quranContent').select('_id').lean();
+    const habit = await UserHabit.findOne({ _id: habitId, user: user._id })
+        .populate<{ template: IHabitTemplate }>('template', 'adhkarSet quranContent pdfContent infoContent')
+        .select('_id template')
+        .lean();
 
-    console.log({ habit })
     if (!habit) {
         throw new NotFoundError('Habit not found');
     }
 
-    if (!habit.template?.adhkarSet && !habit.template?.quranContent) {
+    const template = habit.template;
+    const pdfContent = template?.pdfContent ?? null;
+    const infoContent = template?.infoContent ?? null;
+
+    if (!template?.adhkarSet && !template?.quranContent && !pdfContent && !infoContent) {
         throw new NotFoundError('No dynamic content associated with this habit');
     }
 
-
-    // 1. Check whether the content is Quran data
-    const quranData = await QuranContent.findOne({ _id: habit.template.quranContent, isDeleted: false }).lean();
-
-    if (quranData) {
-        return quranData;
+    if (template?.quranContent) {
+        const quranData = await QuranContent.findById(template.quranContent).lean();
+        if (quranData) {
+            return { ...quranData, pdfContent, infoContent };
+        }
     }
 
-    // 2. Check whether the content is an Adhkar set before continuing
-    const adhkarData = await AdhkarSet.findOne({ _id: habit.template.adhkarSet, isDeleted: false }).lean();
-
-    if (adhkarData) {
-        return adhkarData;
+    if (template?.adhkarSet) {
+        const adhkarData = await AdhkarSet.findById(template.adhkarSet).lean();
+        if (adhkarData) {
+            return { ...adhkarData, pdfContent, infoContent };
+        }
     }
+
+    if (pdfContent || infoContent) {
+        return { pdfContent, infoContent };
+    }
+
+    throw new NotFoundError('No dynamic content associated with this habit');
 };
 
 export const userHabitService = {

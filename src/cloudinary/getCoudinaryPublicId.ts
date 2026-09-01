@@ -1,13 +1,16 @@
-export function getCloudinaryPublicId(url: string): string | null {
+export function getCloudinaryPublicId(url: string, options?: { keepExtension?: boolean }): string | null {
   try {
     const cleanUrl = url.split('?')[0]; 
     const uploadIndex = cleanUrl.indexOf('/upload/');
     if (uploadIndex === -1) return null;
 
-    const publicId = cleanUrl
+    let publicId = cleanUrl
       .substring(uploadIndex + 8)
-      .replace(/^v\d+\//, '') 
-      .replace(/\.[^/.]+$/, '');
+      .replace(/^v\d+\//, '');
+
+    if (!options?.keepExtension) {
+      publicId = publicId.replace(/\.[^/.]+$/, '');
+    }
    
       console.log({publicId: publicId})
     return publicId;

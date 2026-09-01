@@ -8,7 +8,9 @@
     "build": "tsc",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "seed": "cross-env NODE_ENV=development ts-node src/scripts/seed.ts",
+    "seed:fresh": "cross-env NODE_ENV=development ts-node src/scripts/seed.ts --fresh"
   },
   "keywords": [],
   "author": "",

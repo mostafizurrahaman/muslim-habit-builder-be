@@ -16,6 +16,16 @@ export const uploadToCloudinary = (
         resource_type: isPdf ? 'raw' : 'image',
       };
 
+      // Raw PDFs need the .pdf extension in public_id so Cloudinary serves
+      // application/pdf. Viewers (and the app WebView) reject extensionless URLs.
+      if (isPdf) {
+        const baseName = (file.originalname || 'document')
+          .replace(/\.[^/.]+$/, '')
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .slice(0, 80) || 'document';
+        uploadOptions.public_id = `${baseName}_${Date.now()}.pdf`;
+      }
+
 
       if (!isPdf && file.mimetype.startsWith('image/')) {
         uploadBuffer = await sharp(file.buffer)
