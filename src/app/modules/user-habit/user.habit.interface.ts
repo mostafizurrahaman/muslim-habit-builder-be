@@ -21,6 +21,7 @@ export interface IConnectedHabit {
 }
 
 export interface IUserHabit {
+  _id: Types.ObjectId;
   user: Types.ObjectId;
   name: string | null;
   template?: Types.ObjectId | null;

@@ -1,3 +1,4 @@
+import { Document } from "mongoose";
 import { TContent } from "./content.constant";
 
 export interface IContent extends Document {

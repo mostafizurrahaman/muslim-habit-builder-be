@@ -3,7 +3,7 @@ import { deleteImageFromCloudinary } from "../../../cloudinary/deleteImageFromCl
 import { uploadToCloudinary } from "../../../cloudinary/uploadImageToCLoudinary";
 import { BadRequestError } from "../../errors/request/apiError";
 import { IUser } from "../user/user.interface";
-import { TBugStatus } from "./bug.constant";
+import { TBug, TBugStatus } from "./bug.constant";
 import { TBugImage } from "./bug.interface";
 import { Bug } from "./bug.model";
 import { TBugReportPayload } from "./bug.zod";
@@ -17,7 +17,7 @@ const checkExistingBugs = async (user: IUser, featureKey: string) => {
     }
 
     const issues = await Bug.find({
-        featureKey: featureKey as string,
+        featureKey: featureKey as TBug,
         originalReporter: { $ne: user._id }, // Exclude bugs reported by the current user
         status: "pending"
     })
@@ -78,7 +78,7 @@ const createFreshBug = async (user: IUser, payload: TBugReportPayload, files?: T
 
     const newBug = await Bug.create({
         originalReporter: user._id,
-        featureKey,
+        featureKey: featureKey as TBug,
         title: title.trim(),
         description: description.trim(),
         bugImages: uploadedBugImages || [],

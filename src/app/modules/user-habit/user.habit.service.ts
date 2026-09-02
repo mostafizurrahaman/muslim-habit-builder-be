@@ -1,6 +1,6 @@
 import moment from 'moment-timezone';
 import mongoose, { Types } from 'mongoose';
-import { AllowedConnectedPrayer, ConnectedPrayer } from '../../../interfaces';
+import { AllowedConnectedPrayer, ConnectedPrayer, HabitCategory } from '../../../interfaces';
 import { BadRequestError, NotFoundError } from '../../errors/request/apiError';
 import { AdhkarSet } from '../dashboard/adhkar-set/adhkar.set.model';
 import { HABIT_TYPES, OBLIGATORY_PRAYER } from '../dashboard/habit-template/system.habit.constant';
@@ -10,7 +10,7 @@ import { QuranContent } from '../dashboard/quran-content/quran.content.model';
 import { LOG_STATUS } from '../habit-logger/habit.logger.constant';
 import { HabitLog } from '../habit-logger/habit.logger.model';
 import { IUser } from '../user/user.interface';
-import { FREQUENCY_TYPES, WeekDay } from './user.habit.constant';
+import { FREQUENCY_TYPES, TargetType, WeekDay } from './user.habit.constant';
 import { activateConnectedObligatoryHabit, activateCustomHabit, activateGroupHabit, activateSingleHabit, deactivateConnectedObligatoryHabit, deactivateGroupHabit, deactivateSingleHabit, disconnectFromParents } from './user.habit.helper';
 import { IFrequency, IUserHabit } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
@@ -662,7 +662,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 
         const connectHabit = await UserHabit.findOne({
             user: userId,
-            connectedPrayer: payload.connectedPrayer,
+            connectedPrayer: payload.connectedPrayer as ConnectedPrayer,
         });
 
         if (!connectHabit) {
@@ -673,7 +673,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
         await UserHabit.updateMany(
             {
                 user: userId,
-                connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'] },
+                connectedPrayer: { $in: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha And Witr'] },
                 'connectedHabits.userHabit': habit._id,
             },
             {
@@ -968,11 +968,11 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
         user: userId,
         template: null,
         name: payload.name.trim(),
-        category: payload.category,
+        category: payload.category as HabitCategory,
         isPreBuilt: false,
-        connectedPrayer: payload.connectedPrayer ?? null,
-        frequency: payload.frequency,
-        targetType: payload.targetType ?? null,
+        connectedPrayer: (payload.connectedPrayer ?? null) as ConnectedPrayer | null,
+        frequency: payload.frequency as IFrequency,
+        targetType: (payload.targetType ?? null) as TargetType | null,
         targetDescription: payload.targetDescription ?? null,
         allowedFrequencies: [FREQUENCY_TYPES.DAILY, FREQUENCY_TYPES.WEEKLY, FREQUENCY_TYPES.EVERY_N_DAYS],
         reminder: payload.reminder ?? { enabled: false, time: '12:00 AM' },
@@ -993,7 +993,7 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
 
         const connectHabit = await UserHabit.findOne({
             user: userId,
-            connectedPrayer: payload.connectedPrayer,
+            connectedPrayer: payload.connectedPrayer as ConnectedPrayer,
         });
 
         console.log({ connectHabit })

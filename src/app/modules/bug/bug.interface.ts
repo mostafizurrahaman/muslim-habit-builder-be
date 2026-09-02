@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { Document, Types } from "mongoose";
 import { TBug, TBugStatus } from "./bug.constant";
 
 export type TBugImage = {
