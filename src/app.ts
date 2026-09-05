@@ -26,15 +26,13 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-
 app.use(
   cors({
-    origin: '*',
+    origin: config.CORS_ORIGINS,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   }),
-
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());

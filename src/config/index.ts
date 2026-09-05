@@ -6,7 +6,6 @@ dotenv.config({
   path: path.join(process.cwd(), '.env'),
 });
 
-
 const envSchema = z.object({
   NODE_ENV: z.enum(['production', 'development', 'test']).default('development'),
   PORT: z.preprocess((val) => Number(val), z.number().default(5000)),
@@ -16,10 +15,10 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().min(1, 'frontend url is required'),
   SALT_ROUNDS: z.string().min(1, 'salt rounds is required'),
   MONGODB_URL: z.string().min(1, 'MongoDB connection URL is required'),
-  GOOGLE_CLIENT_ID_WEB: z.string().min(1, "Google CLient ID is required"),
-  GOOGLE_CLIENT_ID_ANDROID: z.string().min(1, "Google CLient ID is required"),
-  GOOGLE_CLIENT_ID_IOS: z.string().min(1, "Google CLient ID is required"),
-  HASH_SECRET_KEY: z.string().min(1, "hash secret key is required"),
+  GOOGLE_CLIENT_ID_WEB: z.string().min(1, 'Google CLient ID is required'),
+  GOOGLE_CLIENT_ID_ANDROID: z.string().min(1, 'Google CLient ID is required'),
+  GOOGLE_CLIENT_ID_IOS: z.string().min(1, 'Google CLient ID is required'),
+  HASH_SECRET_KEY: z.string().min(1, 'hash secret key is required'),
   JWT_ACCESS_TOKEN_SECRET: z.string().min(1, 'Access token secret key is required'),
   OTP_TOKEN_EXPIRESIN: z.string().default('2m'),
   JWT_ACCESS_TOKEN_EXPIRESIN: z.string().default('1d'),
@@ -35,6 +34,7 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1, 'stripe secret key is required'),
   GMAIL_APP_USER: z.email('Invalid email format'),
   GMAIL_APP_PASSWORD: z.string().min(1, 'Gmail app password is required'),
+  CORS_ORIGINS: z.string({ error: 'Cors origin is required' }).transform((val) => val.split(',')),
 });
 
 const envVars = envSchema.parse(process.env);
@@ -67,4 +67,5 @@ export default {
   app_id: envVars.APP_ID,
   server_secret: envVars.SERVER_SECRET,
   callback_secret: envVars.CALLBACK_SECRET,
+  CORS_ORIGINS: envVars.CORS_ORIGINS,
 };

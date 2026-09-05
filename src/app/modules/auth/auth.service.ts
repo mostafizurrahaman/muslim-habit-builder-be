@@ -46,7 +46,7 @@ const loginWithCredential = async (credential: TLoginPayload) => {
   if (!user.verification.emailVerifiedAt) {
     await sendVerificationOtp(user._id, email);
     return {
-      status: 'UNVERIFIED'
+      status: 'UNVERIFIED',
     };
   }
 
@@ -55,7 +55,7 @@ const loginWithCredential = async (credential: TLoginPayload) => {
     user.disabledAt = null;
   }
 
-  await user.save()
+  await user.save();
 
   const JwtPayload: jwtPayload = {
     id: user._id.toString(),
@@ -162,7 +162,7 @@ const loginWithOAuth = async (credential: socialLoginPayload) => {
     role: user.role,
   };
   const tokens = await jwtHelpers.generateTokens(JwtPayload);
-  return tokens
+  return tokens;
 };
 
 // verify account by otp
@@ -266,7 +266,7 @@ const resendEmailVerificationOtpAgain = async (email: string) => {
     await OtpToken.create({
       userId: user._id,
       type: 'email_verification',
-      otpHash: verificationOtp,  // plain OTP — hook will hash it
+      otpHash: verificationOtp, // plain OTP — hook will hash it
       expiresAt: new Date(Date.now() + expiresInMinutes * 60 * 1000),
     });
   } catch {
@@ -277,12 +277,11 @@ const resendEmailVerificationOtpAgain = async (email: string) => {
   return null;
 };
 
-
 // forget password
 const forgotPassword = async (email: string) => {
   const normalizedEmail = email.trim().toLowerCase();
-  const user = await userRepository.findByEmail(normalizedEmail, "_id email");
- 
+  const user = await userRepository.findByEmail(normalizedEmail, '_id email');
+
   if (!user) {
     throw new UnauthorizedError('User not found!');
   }
@@ -381,7 +380,6 @@ const resetPasswordOtpAgain = async (email: string) => {
   return null;
 };
 
-
 // verifyForgetPasswordByOtp
 const verifyForgetPasswordByOtp = async (email: string, otp: string) => {
   const user = await userRepository.findByEmail(email, '_id');
@@ -406,17 +404,13 @@ const verifyForgetPasswordByOtp = async (email: string, otp: string) => {
   await OtpToken.deleteOne({ userId: user._id, type: 'password_reset' });
 
   // Issue a short-lived reset token scoped only for password reset
-  const resetToken = await jwtHelpers.createToken(
-    {
-      id: user._id.toString(),
-      purpose: 'password_reset',
-    },
-  );
+  const resetToken = await jwtHelpers.createToken({
+    id: user._id.toString(),
+    purpose: 'password_reset',
+  });
 
   return { resetToken };
 };
-
-
 
 // resetPassword
 const resetPassword = async (resetToken: string, newPassword: string) => {
@@ -425,7 +419,7 @@ const resetPassword = async (resetToken: string, newPassword: string) => {
 
   try {
     decoded = jwtHelpers.verifyToken(resetToken, config.jwt_access_token_secret) as { id?: string; purpose?: string };
-    console.log(decoded)
+    console.log(decoded);
   } catch {
     throw new UnauthorizedError('Reset token is invalid or expired. Please verify OTP again.');
   }
@@ -446,7 +440,6 @@ const resetPassword = async (resetToken: string, newPassword: string) => {
   return null;
 };
 // resetPasswordIntoDB
-
 
 //change Password
 const changePassword = async (currentUser: IUser, currentPassword: string, newPassword: string) => {
