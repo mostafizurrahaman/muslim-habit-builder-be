@@ -53,6 +53,16 @@ const updateDraftHabitToPublish = asyncHandler(async (req: Request, res: Respons
     });
 });
 
+const unpublishHabitTemplate = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.unpublishHabitTemplate(req.params.id as string);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit template has been unpublished successfully',
+        data: result,
+    });
+});
+
 const getHabitDetailsById = asyncHandler(async (req: Request, res: Response) => {
     const result = await habitTemplateService.getHabitTemplateById(req.params.id as string);
     sendResponse(res, {
@@ -115,6 +125,7 @@ export const habitTemplateController = {
     getParentHabits,
     getHabitDetailsById,
     updateDraftHabitToPublish,
+    unpublishHabitTemplate,
     updateTemplateHabit,
     deleteHabitTemplate,
 };

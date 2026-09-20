@@ -269,6 +269,17 @@ const updateDraftHabitToPublish = async (id: string) => {
     return null;
 }
 
+// update published habit to draft (unpublish)
+const unpublishHabitTemplate = async (id: string) => {
+    const habit = await HabitTemplate.findById(id);
+    if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    if (habit.status === HABIT_STATUS.DRAFT) {
+        throw new BadRequestError('Habit template is already in draft');
+    }
+    await HabitTemplate.updateOne({ _id: id }, { status: HABIT_STATUS.DRAFT });
+    return null;
+}
+
 // get group habits
 const getGroupHabits = async () => {
     const groupHabits = await HabitTemplate.find({ isGroup: true }).select('_id name').lean();
@@ -366,6 +377,7 @@ export const habitTemplateService = {
     getGroupHabits,
     getHabitTemplateById,
     updateDraftHabitToPublish,
+    unpublishHabitTemplate,
     getParentHabits,
     getAllHabits,
     updateSystemHabit,

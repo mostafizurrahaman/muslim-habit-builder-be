@@ -53,6 +53,12 @@ habitTemplateRouter.patch(
     habitTemplateController.updateDraftHabitToPublish,
 );
 
+habitTemplateRouter.patch(
+    '/unpublish/:id',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.unpublishHabitTemplate,
+);
+
 habitTemplateRouter.get(
     '/get-habit-details/:id',
     authMiddleware(USER_ROLE.GUEST, USER_ROLE.USER, USER_ROLE.SUPER_ADMIN),
