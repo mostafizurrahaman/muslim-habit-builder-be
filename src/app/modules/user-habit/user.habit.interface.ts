@@ -41,6 +41,7 @@ export interface IUserHabit {
   customDetails?: string | null;
   isActive: boolean;
   progressRestartedAt?: Date | null;
+  displayOrder: number;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -136,6 +136,10 @@ const userHabitSchema = new Schema<IUserHabit>(
       type: Date,
       default: null,
     },
+    displayOrder: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,
@@ -148,7 +152,8 @@ userHabitSchema.index({ user: 1 });
 userHabitSchema.index({ parent: 1 });
 userHabitSchema.index({ template: 1 });
 userHabitSchema.index({ connectedPrayer: 1 });
-userHabitSchema.index({ user: 1,category: 1 });
+userHabitSchema.index({ user: 1, category: 1 });
+userHabitSchema.index({ user: 1, displayOrder: 1 });
 
 export const UserHabit = model<IUserHabit>('UserHabit', userHabitSchema);
 

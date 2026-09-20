@@ -18,7 +18,11 @@ import { UserHabit } from "./user.habit.model";
 /**
   * builds a new UserHabit payload based on a HabitTemplate, for creating
  */
-const buildHabitPayload = (userId: Types.ObjectId, template: Partial<IHabitTemplate>) => ({
+const buildHabitPayload = (
+    userId: Types.ObjectId,
+    template: Partial<IHabitTemplate>,
+    displayOrder = 0,
+) => ({
     user: userId,
     template: template._id,
     name: null,
@@ -37,10 +41,23 @@ const buildHabitPayload = (userId: Types.ObjectId, template: Partial<IHabitTempl
     startDate: new Date(),
     showOnTodayScreen: true,
     prayerCustomizedAt: template.prayerCustomizedAt ?? null,
-    displayOrder: 0,
+    displayOrder,
     isActive: true,
     customDetails: null,
 });
+
+export const getNextDisplayOrder = async (
+    userId: Types.ObjectId,
+    session?: mongoose.ClientSession,
+) => {
+    const last = await UserHabit.findOne({ user: userId })
+        .sort({ displayOrder: -1 })
+        .select('displayOrder')
+        .session(session ?? null)
+        .lean();
+
+    return (last?.displayOrder ?? -1) + 1;
+};
 
 /**
  * Deactivates every active habit in a group (e.g. "Prayers" group containing
@@ -411,11 +428,23 @@ export const activateGroupHabit = async (
     let newHabits: any[] = [];
 
     try {
+        let nextDisplayOrder = await getNextDisplayOrder(userId, session);
+
         // ── Reactivate soft-deleted habits ──
         if (toReactivate.length) {
-            await UserHabit.updateMany(
-                { _id: { $in: toReactivate } },
-                { $set: { isActive: true, startDate: new Date() } },
+            await UserHabit.bulkWrite(
+                toReactivate.map(id => ({
+                    updateOne: {
+                        filter: { _id: id },
+                        update: {
+                            $set: {
+                                isActive: true,
+                                startDate: new Date(),
+                                displayOrder: nextDisplayOrder++,
+                            },
+                        },
+                    },
+                })),
                 { session },
             );
 
@@ -486,7 +515,7 @@ export const activateGroupHabit = async (
 
         // ── Create brand-new habits ──
         if (toCreate.length) {
-            const payloads = toCreate.map(t => buildHabitPayload(userId, t));
+            const payloads = toCreate.map(t => buildHabitPayload(userId, t, nextDisplayOrder++));
             newHabits = await UserHabit.insertMany(payloads, { session });
 
             await HabitLog.insertMany(
@@ -777,11 +806,13 @@ export const activateSingleHabit = async (
 
     try {
         let habitToActivate: any;
+        const displayOrder = await getNextDisplayOrder(userId, session);
 
         if (existingHabit) {
             // Reactivate soft-deleted instance
             existingHabit.isActive = true;
             existingHabit.startDate = new Date();
+            existingHabit.displayOrder = displayOrder;
             await existingHabit.save({ session });
 
             const existingLog = await HabitLog.findOne({
@@ -806,7 +837,7 @@ export const activateSingleHabit = async (
         } else {
             // Create fresh habit instance
             const [newHabit] = await UserHabit.create(
-                [buildHabitPayload(userId, template)],
+                [buildHabitPayload(userId, template, displayOrder)],
                 { session },
             );
 
@@ -874,9 +905,11 @@ export const activateCustomHabit = async (
 
     try {
         // Activate custom habit
+        const displayOrder = await getNextDisplayOrder(userId, session);
+
         await UserHabit.updateOne(
             { _id: userCustomHabit._id },
-            { $set: { isActive: true, startDate: new Date() } },
+            { $set: { isActive: true, startDate: new Date(), displayOrder } },
             { session },
         );
 

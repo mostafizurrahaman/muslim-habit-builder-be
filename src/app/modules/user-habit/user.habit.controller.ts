@@ -33,6 +33,33 @@ const getTodayHabits = asyncHandler(async (req: Request, res: Response) => {
   })
 })
 
+const reorderTodayHabits = asyncHandler(async (req: Request, res: Response) => {
+  const result = await userHabitService.reorderTodayHabits(req.user, req.body.habitIds);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: USER_HABIT_MESSAGES.REORDERED,
+    data: result,
+  });
+});
+
+const reorderSubHabits = asyncHandler(async (req: Request, res: Response) => {
+  const { parentHabitId } = req.params;
+  const result = await userHabitService.reorderSubHabits(
+    req.user,
+    parentHabitId as string,
+    req.body.subHabitIds,
+  );
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: USER_HABIT_MESSAGES.SUB_HABITS_REORDERED,
+    data: result,
+  });
+});
+
 
 // get habit detail
 const getHabitDetail = asyncHandler(async (req: Request, res: Response) => {
@@ -141,6 +168,8 @@ const fetchDynamicContentIntoDb = asyncHandler(async (req: Request, res: Respons
 export const userHabitController = {
   addHabitInYourHabitListIntoDb,
   getTodayHabits,
+  reorderTodayHabits,
+  reorderSubHabits,
   getHabitDetail,
   updateHabitIntodb,
   addCustomHabitIntoDb,

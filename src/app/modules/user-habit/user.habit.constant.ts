@@ -9,6 +9,8 @@ export const USER_HABIT_MESSAGES = {
   UPDATED: 'User habit updated successfully',
   DELETED: 'User habit deleted successfully',
   FETCHED: 'User habits fetched successfully',
+  REORDERED: 'Habits reordered successfully',
+  SUB_HABITS_REORDERED: 'Sub-habits reordered successfully',
   NOT_FOUND: 'User habit not found',
   PARENT_NOT_FOUND: 'Parent habit not found',
   HABIT_NOT_FOUND: 'Habit template not found',

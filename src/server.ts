@@ -6,7 +6,7 @@ import dns from 'dns';
 import seedingAdmin from './utilities/seeding';
 
 let server: HTTPServer;
-dns.setServers(["1.1.1.1", "8.8.8.8"]);
+// dns.setServers(["1.1.1.1", "8.8.8.8"]);
 // handle uncaught exception error
 process.on('uncaughtException', (error) => {
   console.log('uncaughtException error', error);
@@ -19,13 +19,12 @@ const runServer = async () => {
 
   const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : config.base_url || 'localhost';
 
-  server = app.listen(config.server_port || 5002, host, () => {
+  server = app.listen(config.server_port || 5002, () => {
     console.log(`\x1b[33mServer is listening on port http://${host}:${config.server_port || 5020}\x1b[0m`);
   });
 
   seedingAdmin();
   // initialize socket after server is created
-
 };
 
 // handle unhandled rejection

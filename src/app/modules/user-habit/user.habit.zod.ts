@@ -1,40 +1,41 @@
-import z from "zod"
-import { CONNECTED_PRAYERS, HABIT_CATEGORIES } from "../../../interfaces"
-import { HABIT_CATEGORY, HABIT_LEVEL } from "../../../shared/constants/habit.shared.types"
-import { frequencyZodSchema } from "../dashboard/habit-template/system.habit.zod"
-import { FREQUENCY_TYPES, HABIT_LOCATIONS, TARGET_TYPES, WEEK_DAYS } from "./user.habit.constant"
-
-
-
+import z from 'zod';
+import { CONNECTED_PRAYERS, HABIT_CATEGORIES } from '../../../interfaces';
+import { HABIT_CATEGORY, HABIT_LEVEL } from '../../../shared/constants/habit.shared.types';
+import { frequencyZodSchema } from '../dashboard/habit-template/system.habit.zod';
+import { FREQUENCY_TYPES, HABIT_LOCATIONS, TARGET_TYPES, WEEK_DAYS } from './user.habit.constant';
 
 const createUserHabitZod = z.object({
-  name: z.string({
-    error: (issue) => {
-      if (issue.input === undefined) return 'Name is required'
-      if (typeof issue.input !== 'string') return 'Name must be a string'
-      return 'Invalid name'
-    },
-  })
+  name: z
+    .string({
+      error: (issue) => {
+        if (issue.input === undefined) return 'Name is required';
+        if (typeof issue.input !== 'string') return 'Name must be a string';
+        return 'Invalid name';
+      },
+    })
     .min(1, 'Name cannot be empty')
     .max(100, 'Name cannot exceed 100 characters'),
 
   category: z.enum(Object.values(HABIT_CATEGORY) as [string, ...string[]], {
     error: (issue) => {
-      if (issue.input === undefined) return 'Category is required'
-      return `Invalid category. Must be one of: ${Object.values(HABIT_CATEGORY).join(', ')}`
+      if (issue.input === undefined) return 'Category is required';
+      return `Invalid category. Must be one of: ${Object.values(HABIT_CATEGORY).join(', ')}`;
     },
   }),
 
   frequency: frequencyZodSchema,
 
-  parentId: z.string({
-    error: () => 'Parent ID must be a string',
-  }).nullable().optional(),
+  parentId: z
+    .string({
+      error: () => 'Parent ID must be a string',
+    })
+    .nullable()
+    .optional(),
 
   level: z.enum(Object.values(HABIT_LEVEL) as [string, ...string[]], {
     error: (issue) => {
-      if (issue.input === undefined) return 'Level is required'
-      return `Invalid level. Must be one of: ${Object.values(HABIT_LEVEL).join(', ')}`
+      if (issue.input === undefined) return 'Level is required';
+      return `Invalid level. Must be one of: ${Object.values(HABIT_LEVEL).join(', ')}`;
     },
   }),
 
@@ -44,23 +45,26 @@ const createUserHabitZod = z.object({
       if (val === 'false') return false;
       return val;
     },
-    z.boolean({
-      error: "isReminder must be a boolean",
-    }).optional().default(false)
+    z
+      .boolean({
+        error: 'isReminder must be a boolean',
+      })
+      .optional()
+      .default(false),
   ),
 
-  order: z.number({
-    error: (issue) => {
-      if (typeof issue.input !== 'number') return 'Order must be a number'
-      return 'Invalid order'
-    },
-  })
+  order: z
+    .number({
+      error: (issue) => {
+        if (typeof issue.input !== 'number') return 'Order must be a number';
+        return 'Invalid order';
+      },
+    })
     .int('Order must be a whole number')
     .min(0, 'Order cannot be negative')
     .optional()
     .default(0),
-
-})
+});
 
 /* --------------*/
 
@@ -68,13 +72,13 @@ const createUserHabitZod = z.object({
 //  HELPERS
 // ─────────────────────────────────────────────────────────────
 const objectId = () =>
-  z.string({
-    error: () => 'Must be a valid ID',
-  }).refine(val => /^[a-f\d]{24}$/i.test(val), 'Invalid ID format');
+  z
+    .string({
+      error: () => 'Must be a valid ID',
+    })
+    .refine((val) => /^[a-f\d]{24}$/i.test(val), 'Invalid ID format');
 
 const nullableObjectId = () => objectId().nullable().optional();
-
-
 
 // ─────────────────────────────────────────────────────────────
 //  FREQUENCY
@@ -136,9 +140,11 @@ const reminderSchema = z
         if (val === 'false') return false;
         return val;
       },
-      z.boolean({
-        error: () => 'Reminder enabled must be a boolean',
-      }).default(false),
+      z
+        .boolean({
+          error: () => 'Reminder enabled must be a boolean',
+        })
+        .default(false),
     ),
     time: z
       .string({
@@ -184,7 +190,7 @@ export const addCustomHabitSchema = z.object({
     })
     .min(1, 'Name cannot be empty')
     .max(100, 'Name cannot exceed 100 characters')
-    .transform(val => val.trim()),
+    .transform((val) => val.trim()),
 
   category: z.enum(Object.values(HABIT_CATEGORIES) as [string, ...string[]], {
     error: (issue) => {
@@ -194,23 +200,16 @@ export const addCustomHabitSchema = z.object({
   }),
 
   connectedPrayer: z
-    .enum(
-      Object.values(CONNECTED_PRAYERS).filter(Boolean) as [string, ...string[]],
-      {
-        error: () =>
-          `Invalid connected prayer. Must be one of: ${Object.values(CONNECTED_PRAYERS).filter(Boolean).join(', ')}`,
-      },
-    )
+    .enum(Object.values(CONNECTED_PRAYERS).filter(Boolean) as [string, ...string[]], {
+      error: () => `Invalid connected prayer. Must be one of: ${Object.values(CONNECTED_PRAYERS).filter(Boolean).join(', ')}`,
+    })
     .nullable()
     .optional(),
 
   location: z
-    .enum(
-      Object.values(HABIT_LOCATIONS).filter(Boolean) as [string, ...string[]],
-      {
-        error: () => `Invalid location. Must be one of: Home, Masjid`,
-      },
-    )
+    .enum(Object.values(HABIT_LOCATIONS).filter(Boolean) as [string, ...string[]], {
+      error: () => `Invalid location. Must be one of: Home, Masjid`,
+    })
     .nullable()
     .optional()
     .default('Home'),
@@ -219,9 +218,11 @@ export const addCustomHabitSchema = z.object({
 
   reminder: reminderSchema.optional().default({ enabled: false, time: '12:00 AM' }),
 
-  targetType: z.enum(Object.values(TARGET_TYPES) as [string, ...string[]], {
-    error: () => 'Invalid target type. Must be one of: Page,Juzz, Time',
-  }).optional(),
+  targetType: z
+    .enum(Object.values(TARGET_TYPES) as [string, ...string[]], {
+      error: () => 'Invalid target type. Must be one of: Page,Juzz, Time',
+    })
+    .optional(),
 
   targetDescription: z
     .string({
@@ -236,28 +237,28 @@ export const addCustomHabitSchema = z.object({
       error: () => 'Start date must be a string',
     })
     .optional()
-    .transform(val => (val ? new Date(val) : new Date())),
+    .transform((val) => (val ? new Date(val) : new Date())),
 
-  showOnTodayScreen: z
-    .preprocess(
-      (val) => {
-        if (val === 'true') return true;
-        if (val === 'false') return false;
-        return val;
-      },
-      z.boolean({
+  showOnTodayScreen: z.preprocess(
+    (val) => {
+      if (val === 'true') return true;
+      if (val === 'false') return false;
+      return val;
+    },
+    z
+      .boolean({
         error: () => 'showOnTodayScreen must be a boolean',
-      }).optional()
-        .default(false),
-    ),
+      })
+      .optional()
+      .default(false),
+  ),
   customDetails: z
     .string({
       error: () => 'Custom details must be a string',
     })
     .min(5, 'Custom details must be at least 5 characters')
     .max(50, 'Custom details cannot exceed 50 characters')
-    .optional()
-
+    .optional(),
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -265,22 +266,22 @@ export const addCustomHabitSchema = z.object({
 // ─────────────────────────────────────────────────────────────
 export const editHabitSchema = z
   .object({
-    name: z.string({
-      error: (issue) => {
-        if (issue.input === undefined) return 'Name is required';
-        if (typeof issue.input !== 'string') return 'Name must be a string';
-        return 'Invalid name';
-      },
-    }).min(1, 'Name cannot be empty').max(50, 'Name cannot exceed 50 characters').optional(),
+    name: z
+      .string({
+        error: (issue) => {
+          if (issue.input === undefined) return 'Name is required';
+          if (typeof issue.input !== 'string') return 'Name must be a string';
+          return 'Invalid name';
+        },
+      })
+      .min(1, 'Name cannot be empty')
+      .max(50, 'Name cannot exceed 50 characters')
+      .optional(),
 
     connectedPrayer: z
-      .enum(
-        Object.values(CONNECTED_PRAYERS).filter(Boolean) as [string, ...string[]],
-        {
-          error: () =>
-            `Invalid connected prayer. Must be one of: ${Object.values(CONNECTED_PRAYERS).filter(Boolean).join(', ')}`,
-        },
-      )
+      .enum(Object.values(CONNECTED_PRAYERS).filter(Boolean) as [string, ...string[]], {
+        error: () => `Invalid connected prayer. Must be one of: ${Object.values(CONNECTED_PRAYERS).filter(Boolean).join(', ')}`,
+      })
       .optional(),
 
     frequency: frequencySchema.optional(),
@@ -292,21 +293,20 @@ export const editHabitSchema = z
         error: () => 'Start date must be a string',
       })
       .optional()
-      .transform(val => (val ? new Date(val) : undefined)),
+      .transform((val) => (val ? new Date(val) : undefined)),
 
     location: z
-      .enum(
-        Object.values(HABIT_LOCATIONS).filter(Boolean) as [string, ...string[]],
-        {
-          error: () => 'Invalid location. Must be one of: Home, Masjid',
-        },
-      )
+      .enum(Object.values(HABIT_LOCATIONS).filter(Boolean) as [string, ...string[]], {
+        error: () => 'Invalid location. Must be one of: Home, Masjid',
+      })
       .nullable()
       .optional(),
 
-    targetType: z.enum(Object.values(TARGET_TYPES) as [string, ...string[]], {
-      error: () => 'Invalid target type. Must be one of: Page,Juzz, Time',
-    }).optional(),
+    targetType: z
+      .enum(Object.values(TARGET_TYPES) as [string, ...string[]], {
+        error: () => 'Invalid target type. Must be one of: Page,Juzz, Time',
+      })
+      .optional(),
 
     targetDescription: z
       .string({
@@ -324,7 +324,6 @@ export const editHabitSchema = z
       .max(50, 'Custom details cannot exceed 50 characters')
       .optional()
       .nullable(),
-
 
     connectedHabits: z
       .array(z.string(), {
@@ -345,7 +344,7 @@ export const editHabitSchema = z
   })
   .superRefine((val, ctx) => {
     // At least one field must be provided
-    const hasAnyField = Object.values(val).some(v => v !== undefined);
+    const hasAnyField = Object.values(val).some((v) => v !== undefined);
     if (!hasAnyField) {
       ctx.addIssue({
         code: 'custom',
@@ -357,31 +356,78 @@ export const editHabitSchema = z
 export type AddCustomHabitPayload = z.infer<typeof addCustomHabitSchema>;
 export type EditHabitPayload = z.infer<typeof editHabitSchema>;
 
+const reorderHabitsSchema = z.object({
+  habitIds: z
+    .array(objectId(), {
+      error: () => 'habitIds must be an array of habit IDs',
+    })
+    .min(1, 'At least one habit ID is required')
+    .superRefine((val, ctx) => {
+      if (new Set(val).size !== val.length) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'habitIds must not contain duplicates',
+        });
+      }
+    }),
+});
 
+export type ReorderHabitsPayload = z.infer<typeof reorderHabitsSchema>;
 
+const reorderSubHabitsParamsZod = z.object({
+  parentHabitId: z
+    .string({
+      error: (issue) => {
+        if (issue.input === undefined) return 'Parent habit ID is required';
+        if (typeof issue.input !== 'string') return 'Parent habit ID must be a string';
+        return 'Invalid parent habit ID';
+      },
+    })
+    .regex(/^[0-9a-fA-F]{24}$/, 'Invalid parent habit ID format'),
+});
+
+const reorderSubHabitsSchema = z.object({
+  subHabitIds: z
+    .array(objectId(), {
+      error: () => 'subHabitIds must be an array of habit IDs',
+    })
+    .min(1, 'At least one sub-habit ID is required')
+    .superRefine((val, ctx) => {
+      if (new Set(val).size !== val.length) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'subHabitIds must not contain duplicates',
+        });
+      }
+    }),
+});
+
+export type ReorderSubHabitsPayload = z.infer<typeof reorderSubHabitsSchema>;
+export type ReorderSubHabitsParams = z.infer<typeof reorderSubHabitsParamsZod>;
 
 const habitParamsZod = z.object({
-  habitId: z.string({
-    error: (issue) => {
-      if (issue.input === undefined) return 'Habit ID is required'
-      if (typeof issue.input !== 'string') return 'Habit ID must be a string'
-      return 'Invalid habit ID'
-    },
-  }).regex(/^[0-9a-fA-F]{24}$/, 'Invalid habit ID format'),
-})
+  habitId: z
+    .string({
+      error: (issue) => {
+        if (issue.input === undefined) return 'Habit ID is required';
+        if (typeof issue.input !== 'string') return 'Habit ID must be a string';
+        return 'Invalid habit ID';
+      },
+    })
+    .regex(/^[0-9a-fA-F]{24}$/, 'Invalid habit ID format'),
+});
 
-export type TCreateUserHabit = z.infer<typeof createUserHabitZod>
-export type THabitParams = z.infer<typeof habitParamsZod>
-
-
+export type TCreateUserHabit = z.infer<typeof createUserHabitZod>;
+export type THabitParams = z.infer<typeof habitParamsZod>;
 
 const userHabitValidationZodSchema = {
   createUserHabitZod,
   habitParamsZod,
   editHabitSchema,
-  addCustomHabitSchema
-
+  addCustomHabitSchema,
+  reorderHabitsSchema,
+  reorderSubHabitsParamsZod,
+  reorderSubHabitsSchema,
 };
-
 
 export default userHabitValidationZodSchema;
