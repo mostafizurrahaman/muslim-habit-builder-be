@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import StatusCodes from "http-status-codes";
+import { StatusCodes } from "http-status-codes";
 import asyncHandler from "../../../shared/asynchandler";
 import sendResponse from "../../../shared/sendResponse";
 import { habitProgressService } from "./habit.progress.service";

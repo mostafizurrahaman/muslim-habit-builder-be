@@ -64,11 +64,6 @@ const appRouters = [
     path: '/fcm-token',
     router: fcmTokenRoutes,
   },
-
-  {
-    path: '/subscription',
-    router: subscriptionRouter,
-  },
 ];
 
 appRouters.forEach((router) => {
