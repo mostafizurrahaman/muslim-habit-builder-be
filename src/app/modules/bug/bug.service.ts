@@ -7,6 +7,8 @@ import { TBug, TBugStatus } from "./bug.constant";
 import { TBugImage } from "./bug.interface";
 import { Bug } from "./bug.model";
 import { TBugReportPayload } from "./bug.zod";
+import { notificationServices } from "../Notification/notification.services";
+
 
 
 // check existing bug
@@ -94,8 +96,22 @@ const createFreshBug = async (user: IUser, payload: TBugReportPayload, files?: T
         throw new BadRequestError("Failed to create bug report");
     }
 
-    return newBug;
+    // Notify admins about new bug report:
+    (async () => {
+        try {
+            await notificationServices.createNotificationForAdmin({
+                sender: user._id,
+                title: `New Bug Report: ${newBug.title}`,
+                message: `User ${user.fullName} reported a bug in ${newBug.featureKey}.`,
+                notificationType: 'BUG_UPDATE',
+                meta: { bugId: newBug._id.toString(), featureKey: newBug.featureKey },
+            });
+        } catch (err) {
+            console.error('[BugService] Failed to notify admins about bug:', err);
+        }
+    })();
 
+    return newBug;
 };
 
 

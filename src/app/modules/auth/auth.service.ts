@@ -15,6 +15,8 @@ import { userRepository } from '../user/user.repository';
 import { jwtPayload, socialLoginPayload } from './auth.interface';
 import { sendVerificationOtp } from './auth.utils';
 import { TLoginPayload } from './auth.validation';
+import { fcmTokenServices } from '../FcmToken/fcm-token.services';
+import { notificationServices } from '../Notification/notification.services';
 
 const googleClient = new OAuth2Client();
 
@@ -62,6 +64,17 @@ const loginWithCredential = async (credential: TLoginPayload) => {
     role: user.role,
     isRemembered: credential.isRemembered || false,
   };
+  if (credential.fcmToken) {
+    try {
+      await fcmTokenServices.updateFcmToken(user._id, {
+        token: credential.fcmToken,
+        deviceType: 'android',
+      });
+    } catch (e) {
+      console.error('[Auth] Failed to update FCM token during login:', e);
+    }
+  }
+
   const tokens = await jwtHelpers.generateTokens(JwtPayload);
 
   return tokens;
@@ -138,6 +151,19 @@ const loginWithOAuth = async (credential: socialLoginPayload) => {
     user.role = USER_ROLE.USER;
     await user.save();
 
+    (async () => {
+      try {
+        await notificationServices.createNotification({
+          receiver: user._id,
+          title: 'Welcome to Muslim Habit Builder! 🌙',
+          message: 'Your account has been created. Start building lifelong Islamic habits today!',
+          notificationType: 'GENERAL',
+        });
+      } catch (err) {
+        console.error('[Auth] Failed to send social signup welcome notification:', err);
+      }
+    })();
+
     return {
       isProfileCompleted: false,
     };
@@ -155,6 +181,17 @@ const loginWithOAuth = async (credential: socialLoginPayload) => {
       isProfileCompleted: false,
       userId: user._id,
     };
+  }
+
+  if (credential.fcmToken) {
+    try {
+      await fcmTokenServices.updateFcmToken(user._id, {
+        token: credential.fcmToken,
+        deviceType: 'android',
+      });
+    } catch (e) {
+      console.error('[Auth] Failed to update FCM token during OAuth login:', e);
+    }
   }
 
   const JwtPayload: jwtPayload = {
@@ -191,7 +228,16 @@ const verifyAccountByOtp = async (email: string, otp: string, fcmToken?: string)
     throw new BadRequestError('OTP is incorrect');
   }
 
-  // console.log("fcmToken", fcmToken)
+  if (fcmToken) {
+    try {
+      await fcmTokenServices.updateFcmToken(user._id, {
+        token: fcmToken,
+        deviceType: 'android',
+      });
+    } catch (e) {
+      console.error('[Auth] Failed to update FCM token during OTP verify:', e);
+    }
+  }
 
   // Mark user as verified
   user.verification.emailVerifiedAt = new Date();
@@ -199,6 +245,19 @@ const verifyAccountByOtp = async (email: string, otp: string, fcmToken?: string)
   await OtpToken.deleteOne({ userId: user._id, type: 'email_verification' });
 
   await user.save();
+
+  (async () => {
+    try {
+      await notificationServices.createNotification({
+        receiver: user._id,
+        title: 'Email Verified Successfully! 🌙',
+        message: 'Welcome to Muslim Habit Builder! Your email is verified. Start exploring your daily habits!',
+        notificationType: 'GENERAL',
+      });
+    } catch (err) {
+      console.error('[Auth] Failed to send email verification welcome notification:', err);
+    }
+  })();
 
   const JwtPayload: jwtPayload = {
     id: user._id.toString(),
@@ -437,6 +496,19 @@ const resetPassword = async (resetToken: string, newPassword: string) => {
   user.password = newPassword;
   await user.save();
 
+  (async () => {
+    try {
+      await notificationServices.createNotification({
+        receiver: user._id,
+        title: 'Security Alert: Password Reset',
+        message: 'Your account password was successfully reset. If you did not perform this action, please contact support.',
+        notificationType: 'SYSTEM_ALERT',
+      });
+    } catch (err) {
+      console.error('[Auth] Failed to send password reset notification:', err);
+    }
+  })();
+
   return null;
 };
 // resetPasswordIntoDB
@@ -459,6 +531,19 @@ const changePassword = async (currentUser: IUser, currentPassword: string, newPa
   user.password = newPassword;
   user.passwordChangedAt = user.passwordChangedAt = new Date(Date.now() - 15000);
   await user.save();
+
+  (async () => {
+    try {
+      await notificationServices.createNotification({
+        receiver: user._id,
+        title: 'Security Alert: Password Changed',
+        message: 'Your account password was recently changed. If you did not make this change, please contact support immediately.',
+        notificationType: 'SYSTEM_ALERT',
+      });
+    } catch (err) {
+      console.error('[Auth] Failed to send password change notification:', err);
+    }
+  })();
 
   const JwtPayload: jwtPayload = {
     id: user._id.toString(),

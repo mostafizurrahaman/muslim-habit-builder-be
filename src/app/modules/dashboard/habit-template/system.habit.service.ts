@@ -10,6 +10,9 @@ import { EffectiveHabitTemplateFields } from './system.habit.interface';
 import { HabitTemplate } from './system.habit.model';
 import { validateHabitTemplateRules } from './system.habit.utils';
 import { TCreateHabitTemplate, TUpdateHabitTemplate } from './system.habit.zod';
+import User from '../../user/user.model';
+import { USER_STATUS } from '../../user/user.constant';
+import { notificationServices } from '../../Notification/notification.services';
 
 
 // get all system habits with status for user
@@ -264,8 +267,33 @@ const getHabitTemplateById = async (id: string) => {
 
 // update draft habit to publish
 const updateDraftHabitToPublish = async (id: string) => {
-    const habit = await HabitTemplate.updateOne({ _id: id }, { status: HABIT_STATUS.PUBLISHED });
-    if (habit.modifiedCount === 0) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+    const habit = await HabitTemplate.findById(id);
+    if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+
+    habit.status = HABIT_STATUS.PUBLISHED as any;
+    await habit.save();
+
+    // Broadcast new habit notification to all active users:
+    (async () => {
+        try {
+            const activeUsers = await User.find({ status: USER_STATUS.ACTIVE }).select('_id');
+            if (activeUsers.length > 0) {
+                const userIds = activeUsers.map((u) => u._id);
+                await notificationServices.createNotificationForMultipleUser(
+                    {
+                        title: 'New Habit Available! 🌟',
+                        message: `A new habit "${habit.name}" is now available. Add it to your routine to build your consistency!`,
+                        notificationType: 'ANNOUNCEMENT',
+                        meta: { habitTemplateId: habit._id.toString(), habitName: habit.name },
+                    },
+                    userIds,
+                );
+            }
+        } catch (err) {
+            console.error('[HabitTemplate] Failed to broadcast habit publish notification:', err);
+        }
+    })();
+
     return null;
 }
 

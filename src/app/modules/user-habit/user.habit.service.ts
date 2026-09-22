@@ -26,6 +26,7 @@ import { IFrequency, IUserHabit } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
 import { buildDateBasedOnTimeZone } from './user.habit.utils';
 import { AddCustomHabitPayload, EditHabitPayload, ReorderHabitsPayload, ReorderSubHabitsPayload } from './user.habit.zod';
+import { notificationServices } from '../Notification/notification.services';
 
 // ─────────────────────────────────────────────────────────────
 //  HELPER
@@ -1113,6 +1114,20 @@ const addCustomHabit = async (user: IUser, payload: AddCustomHabitPayload) => {
     status: 'Pending',
   });
 
+  (async () => {
+    try {
+      await notificationServices.createNotification({
+        receiver: userId,
+        title: `Habit Created: ${newHabit.name}`,
+        message: 'May Allah make it easy for you to maintain this new habit with consistency!',
+        notificationType: 'HABIT_REMINDER',
+        meta: { habitId: newHabit._id.toString() },
+      });
+    } catch (err) {
+      console.error('[UserHabit] Failed to send habit creation notification:', err);
+    }
+  })();
+
   return {
     _id: newHabit._id,
     name: newHabit.name,
@@ -1207,7 +1222,7 @@ const searchHabitsToConnect = async (user: IUser, userHabitId: string, searchTer
 
 // delete custom habit
 const deleteCustomHabit = async (user: IUser, habitId: string) => {
-  const habit = await UserHabit.findById(habitId).select('_id user isPreBuilt');
+  const habit = await UserHabit.findById(habitId).select('_id name user isPreBuilt');
   if (!habit) {
     throw new NotFoundError('Habit not found');
   }
@@ -1218,6 +1233,8 @@ const deleteCustomHabit = async (user: IUser, habitId: string) => {
     throw new BadRequestError('You can only delete your own habits');
   }
 
+  const habitName = habit.name;
+
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
@@ -1226,6 +1243,19 @@ const deleteCustomHabit = async (user: IUser, habitId: string) => {
     // 2. Delete associated habit logs
     await HabitLog.deleteMany({ userHabit: habitId }, { session });
     await session.commitTransaction();
+
+    (async () => {
+      try {
+        await notificationServices.createNotification({
+          receiver: user._id,
+          title: 'Habit Removed',
+          message: `Your custom habit "${habitName}" has been removed.`,
+          notificationType: 'HABIT_REMINDER',
+        });
+      } catch (err) {
+        console.error('[UserHabit] Failed to send habit deletion notification:', err);
+      }
+    })();
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -1275,6 +1305,64 @@ const completedHabit = async (user: IUser, habitId: string) => {
     log.status = LOG_STATUS.COMPLETED;
     log.completedAt = new Date();
     log.skippedAt = null; // Clear skip tracking if it was skipped before
+
+    (async () => {
+      try {
+        const habitDoc = await UserHabit.findById(habitId).select('name');
+        // 1. Completion notification
+        await notificationServices.createNotification({
+          receiver: user._id,
+          title: 'Habit Completed! 🎉',
+          message: `Alhamdulillah, you completed "${habitDoc?.name || 'your habit'}" today! Keep up the consistency.`,
+          notificationType: 'HABIT_REMINDER',
+          meta: { habitId, status: 'completed' },
+        });
+
+        // 2. Check if all active habits for today are now completed
+        const pendingCount = await HabitLog.countDocuments({
+          user: userId,
+          date: dateStr,
+          status: LOG_STATUS.PENDING,
+        });
+
+        if (pendingCount === 0) {
+          await notificationServices.createNotification({
+            receiver: user._id,
+            title: 'All Habits Completed Today! 🌟',
+            message: "Masha'Allah! You have completed all your planned habits for today. May Allah reward your dedication!",
+            notificationType: 'HABIT_REMINDER',
+            meta: { date: dateStr, status: 'all_completed' },
+          });
+        }
+
+        // 3. Streak Milestone Check
+        const completedDates = await HabitLog.distinct('date', {
+          user: userId,
+          status: LOG_STATUS.COMPLETED,
+        });
+        const dateSet = new Set(completedDates as string[]);
+
+        let streak = 0;
+        let iter = moment(dateStr, 'YYYY-MM-DD');
+        while (dateSet.has(iter.format('YYYY-MM-DD'))) {
+          streak++;
+          iter = iter.subtract(1, 'day');
+        }
+
+        const milestones = [3, 7, 14, 21, 30, 40, 60, 90, 100, 365];
+        if (milestones.includes(streak)) {
+          await notificationServices.createNotification({
+            receiver: user._id,
+            title: `🔥 ${streak}-Day Streak Achieved!`,
+            message: `SubhanAllah! You have maintained a ${streak}-day consistency streak. Keep striving!`,
+            notificationType: 'STREAK_MILESTONE',
+            meta: { streak: String(streak) },
+          });
+        }
+      } catch (err) {
+        console.error('[UserHabit] Failed to send habit completion/streak notification:', err);
+      }
+    })();
   }
   await log.save();
   return log;

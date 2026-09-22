@@ -3,6 +3,7 @@ import { BadRequestError, NotFoundError } from "../../../errors/request/apiError
 import { IUser } from "../../user/user.interface";
 import User from "../../user/user.model";
 import { TUserUpdatePayload } from "./user.management.zod";
+import { notificationServices } from "../../Notification/notification.services";
 
 
 
@@ -210,11 +211,25 @@ const updateUserStatus = async (userId:string, payload: TUserUpdatePayload) => {
         userId,
         { $set: { status: payload.status } },
         { new: true, runValidators: true }
-    ).select('featureKey title status updatedAt'); 
+    ).select('status updatedAt fullName email'); 
 
     if (!updatedUser) {
         throw new BadRequestError("User not found to update status");
     }
+
+    (async () => {
+        try {
+            await notificationServices.createNotification({
+                receiver: updatedUser._id,
+                title: 'Account Status Update',
+                message: `Your account status has been updated to "${updatedUser.status}".`,
+                notificationType: 'SYSTEM_ALERT',
+                meta: { status: updatedUser.status },
+            });
+        } catch (err) {
+            console.error('[UserManagement] Failed to send status update notification:', err);
+        }
+    })();
 
     return updatedUser;
 };

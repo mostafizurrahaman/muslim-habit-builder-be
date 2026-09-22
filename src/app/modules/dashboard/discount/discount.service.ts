@@ -2,6 +2,9 @@ import { BadRequestError } from '../../../errors/request/apiError';
 import { IDiscount } from './discount.interface';
 import { Discount } from './discount.model';
 import { TDiscountPayload } from './discount.zod';
+import User from '../../user/user.model';
+import { USER_STATUS } from '../../user/user.constant';
+import { notificationServices } from '../../Notification/notification.services';
 
 // 1. Create Discount
 const createDiscount = async (payload: TDiscountPayload) => {
@@ -13,8 +16,30 @@ const createDiscount = async (payload: TDiscountPayload) => {
     const newPayload = {
         ...payload,
         discountString: `${payload.discount}% OFF`,
-    }
+    };
     const result = await Discount.create(newPayload);
+
+    // Broadcast discount notification to active users:
+    (async () => {
+        try {
+            const activeUsers = await User.find({ status: USER_STATUS.ACTIVE }).select('_id');
+            if (activeUsers.length > 0) {
+                const userIds = activeUsers.map((u) => u._id);
+                await notificationServices.createNotificationForMultipleUser(
+                    {
+                        title: `Special Offer: ${result.discount}% OFF!`,
+                        message: `Enjoy ${result.discount}% discount on ${result.appliesTo} plan! Use promo code: ${result.code}`,
+                        notificationType: 'ANNOUNCEMENT',
+                        meta: { discountCode: result.code, appliesTo: result.appliesTo },
+                    },
+                    userIds,
+                );
+            }
+        } catch (err) {
+            console.error('[DiscountService] Failed to send discount notifications:', err);
+        }
+    })();
+
     return result;
 };
 

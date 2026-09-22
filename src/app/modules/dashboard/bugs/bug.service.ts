@@ -3,6 +3,8 @@ import { Bug } from "../../bug/bug.model";
 import User from "../../user/user.model";
 import { BadRequestError, NotFoundError } from "../../../errors/request/apiError";
 import { TBugUpdatePayload } from "./bug.zod";
+import { notificationServices } from "../../Notification/notification.services";
+
 
 
 const getAllBugs = async (query: Record<string, unknown>) => {
@@ -147,10 +149,27 @@ const updateBugStatus = async (bugId: string, payload: TBugUpdatePayload) => {
         bugId,
         { $set: { status: payload.status } },
         { new: true, runValidators: true }
-    ).select('featureKey title status updatedAt'); 
+    ).select('featureKey title status originalReporter updatedAt'); 
 
     if (!updatedBug) {
         throw new BadRequestError("Bug not found to update status");
+    }
+
+    // Notify the original reporter:
+    if (updatedBug.originalReporter) {
+        (async () => {
+            try {
+                await notificationServices.createNotification({
+                    receiver: updatedBug.originalReporter,
+                    title: `Bug Report Update: ${updatedBug.title}`,
+                    message: `The status of your reported bug has been updated to "${updatedBug.status}".`,
+                    notificationType: 'BUG_UPDATE',
+                    meta: { bugId: updatedBug._id.toString(), status: updatedBug.status },
+                });
+            } catch (err) {
+                console.error('[BugService] Failed to notify reporter about status update:', err);
+            }
+        })();
     }
 
     return updatedBug;

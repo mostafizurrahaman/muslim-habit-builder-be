@@ -11,6 +11,7 @@ import { IUser, TProfileImage } from './user.interface';
 import User from './user.model';
 import { generateGuestEmail } from './user.utils';
 import { TRegistrationPayload, TUserProfileUpdatePayload } from './user.validations';
+import { notificationServices } from '../Notification/notification.services';
 
 // create account
 const createAccount = async (payload: TRegistrationPayload) => {
@@ -132,6 +133,19 @@ const switchGuestAccountToRealAccount = async (user: IUser, payload: TRegistrati
   } catch {
     throw new BadRequestError('Failed to send verification email. Try again.');
   }
+
+  (async () => {
+    try {
+      await notificationServices.createNotification({
+        receiver: existingUser._id,
+        title: 'Account Created!',
+        message: 'Welcome to Muslim Habit Builder! Your guest profile has been successfully converted.',
+        notificationType: 'GENERAL',
+      });
+    } catch (err) {
+      console.error('[UserService] Failed to send welcome notification:', err);
+    }
+  })();
 
   return null;
 

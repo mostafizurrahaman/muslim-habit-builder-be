@@ -1,7 +1,6 @@
 import { Document, Model, Types } from 'mongoose';
 import { TNotificationType, TProvider, TSubscriptionPlan, TUserRole, TUserStatus } from './user.constant';
 
-
 export type TProfileImage = {
   profile_image: Express.Multer.File[];
 };
@@ -11,7 +10,6 @@ export interface registerSocialPayload {
   fullName: string;
   provider: TProvider;
 }
-
 
 //Instance methods
 export interface IUser extends Document {
@@ -34,6 +32,7 @@ export interface IUser extends Document {
   subscriptionPlan: TSubscriptionPlan;
   isSocialLogin: boolean;
   status: TUserStatus;
+  lastReadAt: Date | null;
   disabledAt: Date | null;
   deletedAt?: Date | null;
   createdAt: Date;

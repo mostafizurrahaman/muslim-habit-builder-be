@@ -35,6 +35,11 @@ const envSchema = z.object({
   GMAIL_APP_USER: z.email('Invalid email format'),
   GMAIL_APP_PASSWORD: z.string().min(1, 'Gmail app password is required'),
   CORS_ORIGINS: z.string({ error: 'Cors origin is required' }).transform((val) => val.split(',')),
+  FIREBASE_PRIVATE_KEY: z.string({ error: 'Firebase private key required' }),
+  FIREBASE_CLIENT_EMAIL: z.string({ error: 'Firebase client email required.' }),
+  FIREBASE_PROJECT_ID: z.string({
+    error: 'Firebase project id required.',
+  }),
 });
 
 const envVars = envSchema.parse(process.env);
@@ -68,4 +73,8 @@ export default {
   server_secret: envVars.SERVER_SECRET,
   callback_secret: envVars.CALLBACK_SECRET,
   CORS_ORIGINS: envVars.CORS_ORIGINS,
+
+  FIREBASE_PRIVATE_KEY: envVars.FIREBASE_PRIVATE_KEY,
+  FIREBASE_CLIENT_EMAIL: envVars.FIREBASE_CLIENT_EMAIL,
+  FIREBASE_PROJECT_ID: envVars.FIREBASE_PROJECT_ID,
 };

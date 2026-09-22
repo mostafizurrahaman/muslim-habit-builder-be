@@ -4,7 +4,6 @@ import config from '../../../config';
 import { NOTIFICATION_TYPE, PROVIDER, SUBSCRIPTION_PLAN, USER_ROLE, USER_STATUS } from './user.constant';
 import { IUser, IUserModel } from './user.interface';
 
-
 export const userSchema = new Schema<IUser>(
   {
     email: {
@@ -20,11 +19,11 @@ export const userSchema = new Schema<IUser>(
     },
     phone: {
       type: String,
-      default: null
+      default: null,
     },
     avatar: {
       type: String,
-      default: null
+      default: null,
     },
     password: {
       type: String,
@@ -46,7 +45,7 @@ export const userSchema = new Schema<IUser>(
     provider: {
       type: String,
       enum: Object.values(PROVIDER),
-      default: null
+      default: null,
     },
     isSocialLogin: {
       type: Boolean,
@@ -54,11 +53,11 @@ export const userSchema = new Schema<IUser>(
     },
     timezone: {
       type: String,
-      default: null
+      default: null,
     },
     hasNotification: {
       type: Boolean,
-      default: false
+      default: true,
     },
     subscriptionPlan: {
       type: String,
@@ -76,16 +75,20 @@ export const userSchema = new Schema<IUser>(
       enum: Object.values(USER_STATUS),
       default: USER_STATUS.ACTIVE,
     },
+    lastReadAt: { 
+      type: Date, 
+      default: null,
+    },
     disabledAt: {
       type: Date,
-      default: null
+      default: null,
     },
     deletedAt: {
       type: Date,
       default: null,
     },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 userSchema.pre('save', async function () {
@@ -93,7 +96,6 @@ userSchema.pre('save', async function () {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, salt);
   }
-
 });
 
 // isUserExistsByEmail
@@ -112,9 +114,8 @@ userSchema.methods.isJWTIssuedBeforePasswordChanged = function (jwtIssuedTimesta
   return passwordChangedTime > jwtIssuedTimestamp;
 };
 
-
-userSchema.index({ "email": 1 })
-userSchema.index({ "fullName": 1 })
+userSchema.index({ email: 1 });
+userSchema.index({ fullName: 1 });
 
 const User = mongoose.model<IUser, IUserModel>('User', userSchema);
 export default User;

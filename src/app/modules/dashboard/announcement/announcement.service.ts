@@ -1,6 +1,10 @@
 import { BadRequestError } from "../../../errors/request/apiError";
 import { Announcement } from "./announcement.model";
 import { TAnnouncementPayload, TUpdateAnnouncementPayload } from "./announcement.zod";
+import User from "../../user/user.model";
+import { USER_STATUS } from "../../user/user.constant";
+import { notificationServices } from "../../Notification/notification.services";
+
 
 const addAnnouncement = async (payload: TAnnouncementPayload) => {
 
@@ -45,6 +49,28 @@ const addAnnouncement = async (payload: TAnnouncementPayload) => {
 
     // 5. Create and save (Announcement.create already saves, so just return it directly!)
     const announcement = await Announcement.create(newPayload);
+
+    // Broadcast notification to all active users:
+    (async () => {
+        try {
+            const users = await User.find({ status: USER_STATUS.ACTIVE }).select('_id');
+            if (users.length > 0) {
+                const userIds = users.map((u) => u._id);
+                await notificationServices.createNotificationForMultipleUser(
+                    {
+                        title: `New Announcement: ${announcement.title}`,
+                        message: announcement.description || 'Check out the latest announcement in the app!',
+                        notificationType: 'ANNOUNCEMENT',
+                        meta: { announcementId: announcement._id.toString() },
+                    },
+                    userIds,
+                );
+            }
+        } catch (err) {
+            console.error('[AnnouncementService] Failed to send announcement notifications:', err);
+        }
+    })();
+
     return announcement;
 }
 
