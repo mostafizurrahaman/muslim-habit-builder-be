@@ -38,13 +38,18 @@ const addAnnouncement = async (payload: TAnnouncementPayload) => {
     const endDate = new Date(payload.endedAt);
     endDate.setHours(0, 0, 0, 0);
 
-
-    if (todayDate >= startDate && todayDate >= endDate) {
-        throw new BadRequestError("end date must be greater than today");
+    if (endDate < startDate) {
+        throw new BadRequestError("End date cannot be earlier than start date");
     }
+    if (endDate < todayDate) {
+        throw new BadRequestError("End date must be today or in the future");
+    }
+
     // If today is on or after the start date, AND on or before the end date -> Active
     if (todayDate >= startDate && todayDate <= endDate) {
         newPayload.status = 'Active';
+    } else {
+        newPayload.status = 'Scheduled';
     }
 
     // 5. Create and save (Announcement.create already saves, so just return it directly!)
@@ -81,11 +86,10 @@ const getAllAnnouncements = async (query: Record<string, unknown>) => {
 
     // Status filter
     if (status) {
-        matchStage.status = { $regex: status, $options: 'i' };
+        matchStage.status = { $regex: `^${status}$`, $options: 'i' };
     }
 
-
-    // Search Term logic add kora hoyeche
+    // Search Term logic
     if (searchTerm) {
         matchStage.$or = [
             { title: { $regex: searchTerm, $options: 'i' } },
@@ -103,11 +107,15 @@ const getAllAnnouncements = async (query: Record<string, unknown>) => {
                     { $limit: Number(limit) },
                     {
                         $project: {
+                            _id: 1,
+                            id: '$_id',
                             title: 1,
                             description: 1,
                             startedAt: 1,
                             endedAt: 1,
                             status: 1,
+                            createdAt: 1,
+                            updatedAt: 1,
                         },
                     },
                 ],
@@ -116,12 +124,12 @@ const getAllAnnouncements = async (query: Record<string, unknown>) => {
         },
     ]);
 
-    // Data handling securely check kora hoyeche jeno array empty thakle crash na kore
-    const users = result[0]?.data || [];
+    const announcements = result[0]?.data || [];
     const total = result[0]?.total[0]?.count || 0;
 
-    const data = users.map((user: any) => ({
-        ...user,
+    const data = announcements.map((item: any) => ({
+        ...item,
+        id: item._id?.toString() || item.id,
     }));
 
     return {
@@ -134,6 +142,7 @@ const getAllAnnouncements = async (query: Record<string, unknown>) => {
         data,
     };
 };
+
 
 const updateAnnouncement = async (
     announcementId: string,

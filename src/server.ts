@@ -5,6 +5,7 @@ import config from './config';
 import dns from 'dns';
 import seedingAdmin from './utilities/seeding';
 import { startHabitReminderScheduler, stopHabitReminderScheduler } from './app/modules/Notification';
+import { startAnnouncementScheduler, stopAnnouncementScheduler } from './app/modules/dashboard/announcement/announcement.scheduler';
 
 let server: HTTPServer;
 // dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -26,14 +27,16 @@ const runServer = async () => {
 
   seedingAdmin();
 
-  // Start background habit reminder notification scheduler
+  // Start background schedulers
   startHabitReminderScheduler();
+  startAnnouncementScheduler();
 };
 
 // handle unhandled rejection
 process.on('unhandledRejection', (reason, promise) => {
   console.log(`unhandle rejection at ${promise} and reason ${reason}`);
   stopHabitReminderScheduler();
+  stopAnnouncementScheduler();
   if (server) {
     server.close(() => {
       process.exit(1);
@@ -47,6 +50,7 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received.');
   stopHabitReminderScheduler();
+  stopAnnouncementScheduler();
   server.close(() => {
     console.log('Server closed.');
   });

@@ -33,6 +33,11 @@ announcementRouter.delete(
 );
 
 announcementRouter.get(
+  '/',
+  announcementController.getAllAnnouncementsForAdmin,
+);
+
+announcementRouter.get(
   '/retrieve',
   // authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
   announcementController.getAllAnnouncementsForAdmin,

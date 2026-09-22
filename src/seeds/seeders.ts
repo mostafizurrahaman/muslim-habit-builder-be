@@ -14,6 +14,8 @@ import User from '../app/modules/user/user.model';
 import { UserHabit } from '../app/modules/user-habit/user.habit.model';
 import config from '../config';
 import { randomUserImage } from '../utilities/randomUserImage';
+import { notificationServices } from '../app/modules/Notification/notification.services';
+import { USER_STATUS } from '../app/modules/user/user.constant';
 import {
   seedAdhkarSetsData,
   seedAnnouncementsData,
@@ -195,8 +197,25 @@ export const seedAnnouncements = async (): Promise<SeedResult> => {
       continue;
     }
 
-    await Announcement.create(announcementData);
+    const createdAnnouncement = await Announcement.create(announcementData);
     created += 1;
+
+    try {
+      const activeUsers = await User.find({ status: USER_STATUS.ACTIVE }).select('_id');
+      if (activeUsers.length > 0) {
+        await notificationServices.createNotificationForMultipleUser(
+          {
+            title: `New Announcement: ${createdAnnouncement.title}`,
+            message: createdAnnouncement.description || 'Check out the latest announcement in the app!',
+            notificationType: 'ANNOUNCEMENT',
+            meta: { announcementId: createdAnnouncement._id.toString() },
+          },
+          activeUsers.map((u) => u._id),
+        );
+      }
+    } catch {
+      // Ignore notification dispatch error during seeding
+    }
   }
 
   const result = { collection: 'Announcement', created, skipped };
