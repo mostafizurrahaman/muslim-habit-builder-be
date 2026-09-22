@@ -28,4 +28,10 @@ router.get(
   notificationControllers.getAllNotification,
 );
 
+router.post(
+  '/trigger-reminders',
+  authMiddleware(),
+  notificationControllers.triggerHabitReminders,
+);
+
 export const notificationRoutes = router;

@@ -3,6 +3,8 @@ import asyncHandler from '../../../shared/asynchandler';
 import sendResponse from '../../../shared/sendResponse';
 import { notificationServices } from './notification.services';
 import { TGetAllNotificationQueryParamsType } from './notification.validations';
+import { processHabitReminders } from './notification.scheduler';
+
 
 const createNotification = asyncHandler(async (req, res) => {
   const sender = req.body.sender || req.user?._id;
@@ -57,9 +59,21 @@ const getAllNotification = asyncHandler(async (req, res) => {
   });
 });
 
+const triggerHabitReminders = asyncHandler(async (req, res) => {
+  const result = await processHabitReminders();
+
+  sendResponse(res, {
+    success: true,
+    statusCode: StatusCodes.OK,
+    message: `Habit reminders processed successfully. (${result.sentCount} reminders sent)`,
+    data: result,
+  });
+});
+
 export const notificationControllers = {
   createNotification,
   getAllNotification,
   markAsRead,
   markAsReadAll,
+  triggerHabitReminders,
 };
