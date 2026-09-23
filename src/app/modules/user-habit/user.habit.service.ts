@@ -702,7 +702,7 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
     isActive: true,
   }).populate<{ template: IHabitTemplate | null }>({
     path: 'template',
-    select: 'allowConnectedPrayers isPrayerLocked connectedPrayer',
+    select: 'allowConnectedPrayers isPrayerLocked connectedPrayer habitType',
   });
 
   if (!habit) throw new NotFoundError('Habit not found or deactivated');
@@ -808,13 +808,14 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 
   // ── connectedHabits list change (this habit acting as a parent) ──
   if (payload.connectedHabits && payload.connectedHabits.length > 0) {
-    if (
-      habit.connectedPrayer?.includes('Fajr') ||
-      habit.connectedPrayer?.includes('Dhuhr') ||
-      habit.connectedPrayer?.includes('Asr') ||
-      habit.connectedPrayer?.includes('Maghrib') ||
-      habit.connectedPrayer?.includes('Isha')
-    ) {
+    const isObligatoryPrayer =
+      habit.template?.habitType === HABIT_TYPES.OBLIGATORY_PRAYER ||
+      (!habit.parent &&
+        ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].some((prayer) =>
+          habit.connectedPrayer?.includes(prayer),
+        ));
+
+    if (!isObligatoryPrayer) {
       throw new BadRequestError('Only obligatory prayers can have connected habits');
     }
 
