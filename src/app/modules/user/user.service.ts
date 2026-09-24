@@ -79,10 +79,8 @@ const createAccount = async (payload: TRegistrationPayload) => {
   return { id: newUser._id, email: newUser.email };
 };
 
-
 // create guest account
 const createGuestAccount = async () => {
-
   const guestEmail = generateGuestEmail();
   const fullName = `${guestEmail.split('@')[0]}`;
   // Create Guest
@@ -92,7 +90,7 @@ const createGuestAccount = async () => {
     avatar: randomUserImage(),
     role: USER_ROLE.GUEST,
     verification: {
-      emailVerifiedAt: new Date()
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -106,9 +104,7 @@ const createGuestAccount = async () => {
   };
   const tokens = await jwtHelpers.generateTokens(jwtPayload);
   return tokens;
-
 };
-
 
 const switchGuestAccountToRealAccount = async (user: IUser, payload: TRegistrationPayload) => {
   // Implementation for switching guest account to real account
@@ -148,10 +144,7 @@ const switchGuestAccountToRealAccount = async (user: IUser, payload: TRegistrati
   })();
 
   return null;
-
 };
-
-
 
 const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
   if (!files?.profile_image?.length) {
@@ -164,10 +157,7 @@ const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
   let newProfileImageUrl: string;
 
   try {
-    const result = await uploadToCloudinary(
-      files.profile_image[0],
-      'profile_images'
-    );
+    const result = await uploadToCloudinary(files.profile_image[0], 'profile_images');
 
     if (!result?.secure_url) {
       throw new BadRequestError('Cloudinary upload failed');
@@ -179,10 +169,8 @@ const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
   }
 
   try {
-
     user.avatar = newProfileImageUrl;
     await user.save();
-
   } catch (error) {
     // Rollback: delete the newly uploaded image
     await deleteImageFromCloudinary(newProfileImageUrl);
@@ -197,14 +185,9 @@ const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
   return { avatar: newProfileImageUrl };
 };
 
-
 const updateUserProfile = async (user: IUser, payload: TUserProfileUpdatePayload) => {
-  console.log({ payload })
-  const result = await User.findByIdAndUpdate(
-    user._id,
-    { $set: payload },
-    { new: true }
-  );
+  console.log({ payload });
+  const result = await User.findByIdAndUpdate(user._id, { $set: payload }, { new: true });
   return result;
 };
 
@@ -218,8 +201,7 @@ const getUserProfile = async (user: IUser) => {
     notificationType: user.notificationType,
     subscriptionPlan: user.subscriptionPlan,
   };
-}
-
+};
 
 export const userService = {
   createAccount,
