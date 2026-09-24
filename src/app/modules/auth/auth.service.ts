@@ -164,9 +164,15 @@ const loginWithOAuth = async (credential: socialLoginPayload) => {
       }
     })();
 
-    return {
-      isProfileCompleted: false,
+    const JwtPayload: jwtPayload = {
+      id: user._id.toString(),
+      role: user.role,
+      isRemembered: false,
     };
+
+    const tokens = await jwtHelpers.generateTokens(JwtPayload);
+
+    return tokens;
   }
 
   if (user.deletedAt) {

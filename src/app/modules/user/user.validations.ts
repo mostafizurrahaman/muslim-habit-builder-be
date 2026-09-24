@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-
 const createAuthSchema = z.object({
-
   fullName: z
     .string({
       error: (issue) => {
@@ -14,7 +12,6 @@ const createAuthSchema = z.object({
     .min(3, 'Full name must be at least 3 characters long')
     .max(30, 'Full name cannot exceed 30 characters')
     .regex(/^[a-zA-Z\s]+$/, 'Full name can only contain letters and spaces'),
-
 
   email: z
     .string()
@@ -30,12 +27,13 @@ const createAuthSchema = z.object({
     })
     .transform((val) => val.trim().toLowerCase())
     .pipe(
-      z.email('Please provide a valid email address')
+      z
+        .email('Please provide a valid email address')
         .min(5, 'Email must be at least 5 characters long')
-        .max(254, 'Email cannot exceed 254 characters')
+        .max(254, 'Email cannot exceed 254 characters'),
     ),
 
- password: z
+  password: z
     .string({
       error: (issue) => {
         if (issue.input === undefined) return 'Password is required';
@@ -47,7 +45,8 @@ const createAuthSchema = z.object({
       if (val.length < 8) {
         ctx.addIssue({
           code: 'custom',
-          message: 'Password must be at least 8 characters long, less than 30 characters , and contain at least one uppercase letter, one lowercase letter, one number, and one special character',
+          message:
+            'Password must be at least 8 characters long, less than 30 characters , and contain at least one uppercase letter, one lowercase letter, one number, and one special character',
         });
         return; // Length choto thakle porer check-gula ar run korbe na, tai direct min er message ashbe!
       }
@@ -88,7 +87,6 @@ const createAuthSchema = z.object({
       }
     }),
 
-
   timezone: z.string({
     error: (issue) => {
       if (issue.input === undefined) return 'Timezone is required';
@@ -104,10 +102,7 @@ const createAuthSchema = z.object({
   //     return 'Invalid FCM token format';
   //   },
   // }),
-
 });
-
-
 
 const updateUserProfileSchema = z.object({
   fullName: z
@@ -120,26 +115,28 @@ const updateUserProfileSchema = z.object({
     })
     .min(3, 'Full name must be at least 3 characters long')
     .max(30, 'Full name cannot exceed 30 characters')
-    .regex(/^[a-zA-Z\s]+$/, 'Full name can only contain letters and spaces').optional(),
+    .regex(/^[a-zA-Z\s]+$/, 'Full name can only contain letters and spaces')
+    .optional(),
 
-  phone: z.string({
-    error: (issue) => {
-      if (issue.input === undefined) return 'Phone number is required';
-      if (typeof issue.input !== 'string') return 'Phone number must be a string';
-      return 'Invalid phone number format';
-    },
-  })
-    .regex(/^[0-9]+$/, "Phone number must contain only numbers").optional(),
+  phone: z
+    .string({
+      error: (issue) => {
+        if (issue.input === undefined) return 'Phone number is required';
+        if (typeof issue.input !== 'string') return 'Phone number must be a string';
+        return 'Invalid phone number format';
+      },
+    })
+    .regex(/^[0-9]+$/, 'Phone number must contain only numbers')
+    .optional(),
 
   hasNotification: z.boolean().optional(),
 
-  notificationType: z.enum(['vibrate', 'sound'], {
-    message: 'Notification type must be either vibrate or sound',
-  }).optional(),
-
+  notificationType: z
+    .enum(['vibrate', 'sound'], {
+      message: 'Notification type must be either vibrate or sound',
+    })
+    .optional(),
 });
-
-
 
 const createSocialAuthSchema = z.object({
   provider: z.enum(['google', 'apple'], {
@@ -156,8 +153,6 @@ const createSocialAuthSchema = z.object({
   }),
 });
 
-
-
 const updateUserLocationSchema = z.object({
   address: z.string().max(100, 'Address cannot exceed 100 characters'),
   geo: z.object({
@@ -165,29 +160,20 @@ const updateUserLocationSchema = z.object({
     coordinates: z.tuple([
       z.number().refine((lng) => lng >= -180 && lng <= 180, 'Longitude must be between -180 and 180'),
       z.number().refine((lat) => lat >= -90 && lat <= 90, 'Latitude must be between -90 and 90'),
-    ])
-  })
-})
+    ]),
+  }),
+});
 
+export type TUserProfileUpdatePayload = z.infer<typeof updateUserProfileSchema>;
 
-export type TUserProfileUpdatePayload = z.infer<
-  typeof updateUserProfileSchema
->;
+export type TUserLocationPayload = z.infer<typeof updateUserLocationSchema>;
 
-
-export type TUserLocationPayload = z.infer<
-  typeof updateUserLocationSchema
->;
-
-
-export type TRegistrationPayload = z.infer<
-  typeof createAuthSchema
->;
+export type TRegistrationPayload = z.infer<typeof createAuthSchema>;
 const userValidationZodSchema = {
   createAuthSchema,
   createSocialAuthSchema,
   updateUserLocationSchema,
-  updateUserProfileSchema
+  updateUserProfileSchema,
 };
 
 export default userValidationZodSchema;
