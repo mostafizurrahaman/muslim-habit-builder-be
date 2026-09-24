@@ -173,6 +173,8 @@ const loginWithOAuth = async (credential: socialLoginPayload) => {
     return tokens;
   }
 
+  // ?? New comment
+
   if (user.deletedAt) {
     throw new UnauthorizedError('This account has been deleted. if you want to restore this account, create account with same email again');
   }
