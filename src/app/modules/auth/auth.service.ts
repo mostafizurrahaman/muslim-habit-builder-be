@@ -105,191 +105,107 @@ const adminLoginWithCredential = async (credential: TLoginPayload) => {
 
 // authentication with Google
 const loginWithOAuth = async (credential: socialLoginPayload) => {
-  const { provider, token, fcmToken } = credential;
+  const { provider, token } = credential;
 
-  let payload: any;
-
-  // ============================================
-  // 1. Verify OAuth token
-  // ============================================
-
+  let payload;
   if (provider === 'google') {
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: [config.google_client_id_web, config.google_client_id_android, config.google_client_id_ios],
     });
-
     payload = ticket.getPayload();
-
-    if (!payload) {
-      throw new BadRequestError('Invalid Google token.');
-    }
-
-    // Check required Google payload fields
-    if (!payload.sub) {
-      throw new BadRequestError('Invalid Google token: user ID not found.');
-    }
-
-    if (!payload.email) {
-      throw new BadRequestError('Invalid Google token: email not found.');
-    }
-
-    if (!payload.email_verified) {
-      throw new BadRequestError('Google email is not verified.');
-    }
   } else if (provider === 'apple') {
-    // Apple login is not implemented yet
-    throw new BadRequestError('Apple login is not available yet.');
+    // const appleUser = await appleSigninAuth.verifyIdToken(token, {
+    //     audience: process.env.APPLE_CLIENT_ID!,
+    //     ignoreExpiration: false,
+    // });
+    // email = appleUser.email;
+    // id = appleUser.sub;
+    // name = 'Apple User';
   } else {
-    throw new BadRequestError('Invalid provider.');
+    throw new BadRequestError('Invalid token, Please try again');
   }
 
-  // ============================================
-  // 2. Extract OAuth information
-  // ============================================
-
-  const providerId = payload.sub;
-  const email = payload.email.toLowerCase().trim();
+  if (!payload || !payload.email) {
+    throw new BadRequestError('Invalid token: email not found');
+  }
+  const email = payload.email;
   const name = payload.name || 'Unknown';
   const picture = payload.picture || '';
 
-  // ============================================
-  // 3. Find user by OAuth provider + provider ID
-  // ============================================
-
-  let user = await userRepository.findOne({
-    provider,
-    providerId,
-  });
-
-  // ============================================
-  // 4. If OAuth account doesn't exist,
-  //    check existing account by email
-  // ============================================
+  let user = await userRepository.findByEmail(email);
 
   if (!user) {
-    user = await userRepository.findByEmail(email);
-
-    // --------------------------------------------
-    // Existing email account
-    // --------------------------------------------
-
-    if (user) {
-      /*
-       * Decide whether you want to automatically
-       * link the Google account with the existing
-       * account.
-       *
-       * Here we are linking it.
-       */
-
-      user.provider = provider;
-      user.providerId = providerId;
-      user.isSocialLogin = true;
-
-      // Only update avatar if user doesn't already have one
-      if (!user.avatar && picture) {
-        user.avatar = picture;
-      }
-
-      // Social login verifies the email
-      if (!user.verification?.emailVerifiedAt) {
-        user.verification.emailVerifiedAt = new Date();
-      }
-
-      await user.save();
+    user = await userRepository.createUser({
+      fullName: name,
+      email,
+      provider: provider,
+    });
+    if (!user) {
+      throw new BadRequestError('Failed to create user');
     }
+    user.verification.emailVerifiedAt = new Date();
+    user.status = USER_STATUS.ACTIVE;
+    user.isSocialLogin = true;
+    user.avatar = picture;
+    user.role = USER_ROLE.USER;
+    await user.save();
 
-    // --------------------------------------------
-    // Create completely new user
-    // --------------------------------------------
-    else {
-      user = await userRepository.createUser({
-        fullName: name,
-        email,
-        provider,
-        providerId,
-        isSocialLogin: true,
-        avatar: picture,
-        role: USER_ROLE.USER,
-        status: USER_STATUS.ACTIVE,
-        verification: {
-          emailVerifiedAt: new Date(),
-        },
-      });
-
-      if (!user) {
-        throw new BadRequestError('Failed to create user.');
+    (async () => {
+      try {
+        await notificationServices.createNotification({
+          receiver: user._id,
+          title: 'Welcome to Muslim Habit Builder! 🌙',
+          message: 'Your account has been created. Start building lifelong Islamic habits today!',
+          notificationType: 'GENERAL',
+        });
+      } catch (err) {
+        console.error('[Auth] Failed to send social signup welcome notification:', err);
       }
+    })();
 
-      // ------------------------------------------
-      // Welcome notification
-      // ------------------------------------------
+    const JwtPayload: jwtPayload = {
+      id: user._id.toString(),
+      role: user.role,
+    };
+    const tokens = await jwtHelpers.generateTokens(JwtPayload);
 
-      (async () => {
-        try {
-          await notificationServices.createNotification({
-            receiver: user!._id,
-            title: 'Welcome to Muslim Habit Builder! 🌙',
-            message: 'Your account has been created. Start building lifelong Islamic habits today!',
-            notificationType: 'GENERAL',
-          });
-        } catch (err) {
-          console.error('[Auth] Failed to send social signup welcome notification:', err);
-        }
-      })();
-    }
+    return tokens;
   }
-
-  // ============================================
-  // 5. Check deleted account
-  // ============================================
 
   if (user.deletedAt) {
-    throw new UnauthorizedError(
-      'This account has been deleted. If you want to restore this account, please create an account with the same email again.',
-    );
+    throw new UnauthorizedError('This account has been deleted. if you want to restore this account, create account with same email again');
   }
-
-  // ============================================
-  // 6. Check account status
-  // ============================================
-
   if (user.status !== USER_STATUS.ACTIVE) {
-    throw new UnauthorizedError('Unauthorized access.');
+    throw new UnauthorizedError('Unauthorized Access');
   }
 
-  // ============================================
-  // 7. Update FCM token
-  // ============================================
+  if (user.role === USER_ROLE.USER) {
+    const JwtPayload: jwtPayload = {
+      id: user._id.toString(),
+      role: user.role,
+    };
+    const tokens = await jwtHelpers.generateTokens(JwtPayload);
 
-  if (fcmToken) {
+    return tokens;
+  }
+
+  if (credential.fcmToken) {
     try {
       await fcmTokenServices.updateFcmToken(user._id, {
-        token: fcmToken,
+        token: credential.fcmToken,
         deviceType: 'android',
       });
-    } catch (error) {
-      console.error('[Auth] Failed to update FCM token during OAuth login:', error);
+    } catch (e) {
+      console.error('[Auth] Failed to update FCM token during OAuth login:', e);
     }
   }
 
-  // ============================================
-  // 8. Generate JWT
-  // ============================================
-
-  const jwtPayload: jwtPayload = {
+  const JwtPayload: jwtPayload = {
     id: user._id.toString(),
     role: user.role,
-    isRemembered: false,
   };
-
-  const tokens = await jwtHelpers.generateTokens(jwtPayload);
-
-  // ============================================
-  // 9. Return tokens
-  // ============================================
-
+  const tokens = await jwtHelpers.generateTokens(JwtPayload);
   return tokens;
 };
 
