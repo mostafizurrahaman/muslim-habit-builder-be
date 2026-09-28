@@ -4,7 +4,8 @@ export const CONNECTED_PRAYERS = {
     DHUHR: "Dhuhr",
     ASR: "Asr",
     MAGHRIB: "Maghrib",
-    ISHA: "Isha And Witr",
+    ISHA: "Isha",
+    ISHA_AND_WITR: "Isha And Witr",
     FIVE_PRAYERS: "Five Prayers",
     NAFL: "Nafl",
     DUHA: "Duha",
@@ -19,7 +20,8 @@ export const ALLOW_CONNECTED_PRAYERS = {
     DHUHR: "Dhuhr",
     ASR: "Asr",
     MAGHRIB: "Maghrib",
-    ISHA: "Isha And Witr",
+    ISHA: "Isha",
+    ISHA_AND_WITR: "Isha And Witr",
     NULL: null,
 } as const;
 export type AllowedConnectedPrayer = (typeof ALLOW_CONNECTED_PRAYERS)[keyof typeof ALLOW_CONNECTED_PRAYERS];

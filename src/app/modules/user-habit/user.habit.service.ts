@@ -342,13 +342,14 @@ const resolveHabitDisplay = (h: any) => {
   const template = h.template as any | null | undefined;
 
   return {
-    name: template?.name ?? h.name ?? null,
+    name: h.name ?? template?.name ?? null,
     category: template?.category ?? h.category ?? null,
     infoContent: template?.infoContent ?? null,
     pdfContent: template?.pdfContent ?? null,
     habitType: template?.habitType ?? h.habitType ?? null,
     hasAdhkarSet: !!template?.adhkarSet,
     hasQuranContent: !!template?.quranContent,
+    location: h.location ?? null,
   };
 };
 
@@ -363,8 +364,69 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     user: userId,
     isActive: true,
   })
-    .select('_id parent connectedHabits')
+    .select('_id parent connectedHabits connectedPrayer name')
+    .populate({ path: 'template', select: 'isConnectedObligatory habitType' })
     .lean();
+
+  // Self-heal: ensure active prayers have their connected child habits in connectedHabits
+  const parentHabitsMap = new Map<string, any>();
+  const activePrayersMap = new Map<string, any>();
+
+  for (const h of allActiveHabits) {
+    if (!h.parent) {
+      parentHabitsMap.set(h._id.toString(), h);
+      if (h.connectedPrayer) {
+        activePrayersMap.set(h.connectedPrayer.toLowerCase(), h);
+      }
+    }
+  }
+
+  const repairs: { parentId: Types.ObjectId; childId: Types.ObjectId }[] = [];
+  const parentUpdates: { childId: Types.ObjectId; parentId: Types.ObjectId }[] = [];
+
+  for (const h of allActiveHabits) {
+    if (h.parent) {
+      const parentHabit = parentHabitsMap.get(h.parent.toString());
+      if (parentHabit) {
+        const inConnected = parentHabit.connectedHabits?.some(
+          (c: any) => toIdString(c.userHabit) === h._id.toString(),
+        );
+        if (!inConnected) {
+          repairs.push({ parentId: h.parent as Types.ObjectId, childId: h._id as Types.ObjectId });
+        }
+      }
+    } else if (h.connectedPrayer) {
+      // Standalone habit with connectedPrayer (e.g. Adhkar) - if the prayer is also active, link it!
+      const isAdhkar =
+        (h.template as any)?.isConnectedObligatory ||
+        h.name?.toLowerCase().includes('adhkar');
+      if (isAdhkar) {
+        const matchingPrayer = activePrayersMap.get(h.connectedPrayer.toLowerCase());
+        if (matchingPrayer) {
+          parentUpdates.push({ childId: h._id as Types.ObjectId, parentId: matchingPrayer._id as Types.ObjectId });
+          repairs.push({ parentId: matchingPrayer._id as Types.ObjectId, childId: h._id as Types.ObjectId });
+          (h as any).parent = matchingPrayer._id;
+        }
+      }
+    }
+  }
+
+  if (parentUpdates.length > 0) {
+    await Promise.all(
+      parentUpdates.map(({ childId, parentId }) =>
+        UserHabit.updateOne({ _id: childId }, { $set: { parent: parentId } }),
+      ),
+    );
+  }
+
+  if (repairs.length > 0) {
+    for (const { parentId, childId } of repairs) {
+      await UserHabit.updateOne(
+        { _id: parentId, 'connectedHabits.userHabit': { $ne: childId } },
+        { $push: { connectedHabits: { userHabit: childId, order: 1 } } },
+      );
+    }
+  }
 
   const nestedHabitIds = new Set<string>();
   for (const h of allActiveHabits) {
@@ -373,6 +435,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
       const id = toIdString(c.userHabit);
       if (id) nestedHabitIds.add(id);
     }
+  }
+  for (const r of repairs) {
+    nestedHabitIds.add(r.childId.toString());
   }
 
   const filter: any = {
@@ -386,7 +451,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
   }
 
   const habits = await UserHabit.find(filter)
-    .select('_id name category connectedHabits customDetails frequency startDate template isPrebuilt displayOrder')
+    .select('_id name category connectedHabits customDetails frequency startDate template isPrebuilt location displayOrder connectedPrayer')
     .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent' })
     .populate({
       path: 'connectedHabits.userHabit',
@@ -423,13 +488,14 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
   const todayHabits = habits.filter((h) => shouldShowToday(h.frequency, h.startDate));
 
-  // Pre-built templates only appear once at top level (duplicate Adhkar clones).
+  // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer).
   const seenTopLevelTemplates = new Set<string>();
   const uniqueTodayHabits = todayHabits.filter((h) => {
     const templateId = toIdString((h as { template?: unknown }).template);
     if (!templateId) return true;
-    if (seenTopLevelTemplates.has(templateId)) return false;
-    seenTopLevelTemplates.add(templateId);
+    const dedupeKey = `${templateId}_${h.connectedPrayer ?? ''}`;
+    if (seenTopLevelTemplates.has(dedupeKey)) return false;
+    seenTopLevelTemplates.add(dedupeKey);
     return true;
   });
 
@@ -507,6 +573,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
           adhkarSet: childDisplay.hasAdhkarSet,
           quranContent: childDisplay.hasQuranContent,
           customDetails: child?.customDetails ?? null,
+          connectedPrayer: child?.connectedPrayer ?? null,
           order: c.order,
           status: logMap.get(childId) ?? 'Pending',
         };
@@ -543,7 +610,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
       pdfContent: parentDisplay.pdfContent,
       hasAdhkarSet: parentDisplay.hasAdhkarSet,
       hasQuranContent: parentDisplay.hasQuranContent,
+      location: parentDisplay.location,
       customDetails: h.customDetails,
+      connectedPrayer: h.connectedPrayer ?? null,
       displayOrder: h.displayOrder ?? 0,
       status: finalDisplayStatus,
       connectedHabits,
@@ -892,7 +961,7 @@ const resolveHabitDetailDisplay = (h: any) => {
   const template = h.template as any | null | undefined;
 
   return {
-    name: template?.name ?? h.name ?? null,
+    name: h.name ?? template?.name ?? null,
     category: template?.category ?? h.category ?? null,
     habitType: template?.habitType ?? null,
     infoContent: template?.infoContent ?? null,
