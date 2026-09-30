@@ -33,6 +33,19 @@ const getTodayHabits = asyncHandler(async (req: Request, res: Response) => {
   })
 })
 
+// get habits by date (past, today, or future)
+const getHabitsByDate = asyncHandler(async (req: Request, res: Response) => {
+  const { category, date } = req.query;
+  const result = await userHabitService.getHabitsByDate(req.user, date as string, category as string);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: USER_HABIT_MESSAGES.FETCHED,
+    data: result,
+  });
+});
+
 const reorderTodayHabits = asyncHandler(async (req: Request, res: Response) => {
   const result = await userHabitService.reorderTodayHabits(req.user, req.body.habitIds);
 
@@ -168,6 +181,7 @@ const fetchDynamicContentIntoDb = asyncHandler(async (req: Request, res: Respons
 export const userHabitController = {
   addHabitInYourHabitListIntoDb,
   getTodayHabits,
+  getHabitsByDate,
   reorderTodayHabits,
   reorderSubHabits,
   getHabitDetail,

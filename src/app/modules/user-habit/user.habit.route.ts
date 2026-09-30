@@ -19,6 +19,8 @@ userHabitRouter.post(
 
 userHabitRouter.get('/today', authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST), userHabitController.getTodayHabits);
 
+userHabitRouter.get('/by-date', authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST), userHabitController.getHabitsByDate);
+
 userHabitRouter.patch(
   '/reorder',
   authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST),
