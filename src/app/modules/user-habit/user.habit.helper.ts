@@ -152,13 +152,16 @@ export const deactivateGroupHabit = async (
         : [];
 
     const adhkarChildren: typeof connectedChildren = [];
-    const nonAdhkarChildIds: Types.ObjectId[] = [];
+    const sunnahChildren: typeof connectedChildren = [];
+    const nonSpecialChildIds: Types.ObjectId[] = [];
 
     for (const child of connectedChildren) {
         if (isAdhkarAfterPrayer(child)) {
             adhkarChildren.push(child);
+        } else if (isSunnahPrayer(child)) {
+            sunnahChildren.push(child);
         } else {
-            nonAdhkarChildIds.push(child._id as Types.ObjectId);
+            nonSpecialChildIds.push(child._id as Types.ObjectId);
         }
     }
 
@@ -214,22 +217,51 @@ export const deactivateGroupHabit = async (
             );
         }
 
-        // Deactivate non-Adhkar connected children if any exist
-        if (nonAdhkarChildIds.length) {
+        // For connected Sunnah habits: DO NOT DEACTIVATE!
+        // Instead: detach them from parent, set name to '<Prayer> Sunnah', keep active!
+        if (sunnahChildren.length) {
+            for (const child of sunnahChildren) {
+                const cleanName = formatPrayerCleanName(child.connectedPrayer);
+                const standaloneName = `${cleanName} Sunnah`;
+                await UserHabit.updateOne(
+                    { _id: child._id },
+                    {
+                        $set: {
+                            parent: null,
+                            name: standaloneName,
+                            isActive: true,
+                            showOnTodayScreen: true,
+                            connectedHabits: [],
+                        },
+                    },
+                    { session },
+                );
+            }
+
+            const sunnahIds = sunnahChildren.map(c => c._id);
             await UserHabit.updateMany(
-                { _id: { $in: nonAdhkarChildIds }, isActive: true },
+                { _id: { $in: habitIds } },
+                { $pull: { connectedHabits: { userHabit: { $in: sunnahIds } } } },
+                { session },
+            );
+        }
+
+        // Deactivate non-special connected children if any exist
+        if (nonSpecialChildIds.length) {
+            await UserHabit.updateMany(
+                { _id: { $in: nonSpecialChildIds }, isActive: true },
                 { $set: { isActive: false } },
                 { session },
             );
 
             await HabitLog.updateMany(
-                { userHabit: { $in: nonAdhkarChildIds }, date, status: LOG_STATUS.PENDING },
+                { userHabit: { $in: nonSpecialChildIds }, date, status: LOG_STATUS.PENDING },
                 { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
                 { session },
             );
 
             await Promise.all(
-                nonAdhkarChildIds.map((id: Types.ObjectId) => disconnectFromParents(id, session)),
+                nonSpecialChildIds.map((id: Types.ObjectId) => disconnectFromParents(id, session)),
             );
         }
 
@@ -362,7 +394,7 @@ export const deactivateSingleHabit = async (
             await disconnectFromParents(habit._id, session);
         }
 
-        // If habit had connected habits, detach any Adhkar habits as standalone
+        // If habit had connected habits, detach any Adhkar or Sunnah habits as standalone
         const connectedChildIds = habit.connectedHabits?.map((c: IConnectedHabit) => c.userHabit) ?? [];
         if (connectedChildIds.length) {
             const connectedChildren = await UserHabit.find({ _id: { $in: connectedChildIds } })
@@ -379,6 +411,21 @@ export const deactivateSingleHabit = async (
                             $set: {
                                 parent: null,
                                 name: `${cleanName} Adhkar After Prayer`,
+                                isActive: true,
+                                showOnTodayScreen: true,
+                                connectedHabits: [],
+                            },
+                        },
+                        { session },
+                    );
+                } else if (isSunnahPrayer(child)) {
+                    const cleanName = formatPrayerCleanName(child.connectedPrayer ?? habit.connectedPrayer);
+                    await UserHabit.updateOne(
+                        { _id: child._id },
+                        {
+                            $set: {
+                                parent: null,
+                                name: `${cleanName} Sunnah`,
                                 isActive: true,
                                 showOnTodayScreen: true,
                                 connectedHabits: [],
@@ -629,7 +676,7 @@ export const activateGroupHabit = async (
                 user: userId,
                 isActive: true,
             })
-                .populate<{ template: IHabitTemplate }>('template', 'isConnectedObligatory')
+                .populate<{ template: IHabitTemplate }>('template', 'isConnectedObligatory name habitType')
                 .session(session);
 
             for (const item of standaloneConnected) {
@@ -654,6 +701,35 @@ export const activateGroupHabit = async (
                                 $set: {
                                     parent: matchingPrayer._id,
                                     name: 'Adhkar After Prayer',
+                                    connectedPrayer: matchingPrayer.connectedPrayer ?? item.connectedPrayer,
+                                    connectedHabits: [],
+                                },
+                            },
+                            { session },
+                        );
+                        await connectHabitToParentById(matchingPrayer._id, item._id, session);
+                    }
+                } else if (isSunnahPrayer(item)) {
+                    let prayerKey = item.connectedPrayer ? item.connectedPrayer.trim().toLowerCase() : null;
+                    if (!prayerKey && item.name) {
+                        for (const p of ['fajr', 'dhuhr', 'maghrib', 'isha']) {
+                            if (item.name.toLowerCase().includes(p)) {
+                                prayerKey = p;
+                                break;
+                            }
+                        }
+                    }
+
+                    const matchingPrayer = activePrayersForUser.find(p =>
+                        isSamePrayer(p.connectedPrayer, prayerKey ?? item.connectedPrayer),
+                    );
+                    if (matchingPrayer) {
+                        await UserHabit.updateOne(
+                            { _id: item._id },
+                            {
+                                $set: {
+                                    parent: matchingPrayer._id,
+                                    name: 'Sunnah Prayer',
                                     connectedPrayer: matchingPrayer.connectedPrayer ?? item.connectedPrayer,
                                     connectedHabits: [],
                                 },
@@ -712,10 +788,48 @@ export const formatPrayerCleanName = (prayer: string | null | undefined): string
     return clean.charAt(0).toUpperCase() + clean.slice(1);
 };
 
+export const isSunnahPrayersTemplate = (template: any): boolean => {
+    if (!template) return false;
+    const habitType = template.habitType;
+    if (habitType === HABIT_TYPES.SUNNAH_PRAYER) return true;
+    const name = (template.name ?? '').trim().toLowerCase();
+    if (name.includes('12 sunnah') || name.includes('sunnah prayer') || name === 'sunnah prayers') return true;
+    return false;
+};
+
+export const isSunnahPrayer = (h: any): boolean => {
+    if (!h) return false;
+    const template = h.template as any;
+    if (isSunnahPrayersTemplate(template)) return true;
+    const habitType = h.habitType ?? template?.habitType;
+    if (habitType === HABIT_TYPES.SUNNAH_PRAYER) return true;
+    const templateName = (template?.name ?? '').toLowerCase();
+    if (templateName.includes('12 sunnah') || templateName.includes('sunnah prayer') || templateName === 'sunnah prayers') return true;
+    const name = (h.name ?? '').toLowerCase();
+    if (name === 'sunnah prayer' || name === 'sunnah prayers') return true;
+    if (
+        name.includes('fajr sunnah') ||
+        name.includes('dhuhr sunnah') ||
+        name.includes('maghrib sunnah') ||
+        name.includes('isha sunnah')
+    ) return true;
+    if (name.endsWith('sunnah') && ['fajr', 'dhuhr', 'maghrib', 'isha'].some(p => name.includes(p))) return true;
+    return false;
+};
+
+export const SUNNAH_PRAYER_CONFIG: { cleanName: string; prayer: ConnectedPrayer; standaloneName: string }[] = [
+    { cleanName: 'Fajr', prayer: CONNECTED_PRAYERS.FAJR, standaloneName: 'Fajr Sunnah' },
+    { cleanName: 'Dhuhr', prayer: CONNECTED_PRAYERS.DHUHR, standaloneName: 'Dhuhr Sunnah' },
+    { cleanName: 'Maghrib', prayer: CONNECTED_PRAYERS.MAGHRIB, standaloneName: 'Maghrib Sunnah' },
+    { cleanName: 'Isha', prayer: CONNECTED_PRAYERS.ISHA, standaloneName: 'Isha Sunnah' },
+];
+
 export const isAdhkarAfterPrayer = (h: any): boolean => {
     if (!h) return false;
-    if (h.isConnectedObligatory) return true;
+    if (isSunnahPrayer(h)) return false;
     const template = h.template as any;
+    if (isSunnahPrayersTemplate(template)) return false;
+    if (h.isConnectedObligatory) return true;
     if (template?.isConnectedObligatory) return true;
     const templateName = template?.name?.toLowerCase() ?? '';
     if (templateName.includes('adhkar after prayer') || templateName.includes('adhkar after salah')) return true;
@@ -938,6 +1052,270 @@ export const activateConnectedObligatoryHabit = async (
 };
 
 /**
+ * Activates the "12 Sunnah Prayers" habit.
+ *
+ * Case 1: The user has active obligatory prayers:
+ *   Creates or reactivates one instance per active obligatory prayer (Fajr, Dhuhr, Maghrib, Isha),
+ *   nested under that prayer via `parent` and `connectedHabits`, with name "Sunnah Prayer".
+ *
+ * Case 2: The user does NOT have active obligatory prayers:
+ *   Creates or reactivates 4 standalone habits:
+ *   - Fajr Sunnah
+ *   - Dhuhr Sunnah
+ *   - Maghrib Sunnah
+ *   - Isha Sunnah
+ *   Each with parent: null so they appear individually in the Today list.
+ *
+ * Handles mixed states seamlessly (active prayers get nested instance, inactive get standalone instance).
+ */
+export const activateSunnahPrayersHabit = async (
+    userId: Types.ObjectId,
+    template: any,
+    habitId: string,
+    date: string,
+) => {
+    // 1. Fetch obligatory prayer templates
+    const obligatoryPrayerTemplates = await HabitTemplate.find({
+        habitType: HABIT_TYPES.OBLIGATORY_PRAYER,
+        isActive: true,
+    })
+        .select('_id connectedPrayer')
+        .lean();
+
+    const obligatoryPrayerTemplateIds = obligatoryPrayerTemplates.map(t => t._id);
+
+    // 2. Fetch user's obligatory prayers
+    const obligatoryPrayers = await UserHabit.find({
+        user: userId,
+        $or: [
+            { template: { $in: obligatoryPrayerTemplateIds } },
+            { habitType: HABIT_TYPES.OBLIGATORY_PRAYER },
+        ],
+    })
+        .select('_id isActive template connectedPrayer displayOrder name category')
+        .lean();
+
+    // Filter active prayers with required fields
+    const activePrayers = obligatoryPrayers.filter(
+        (p): p is typeof p & { template?: Types.ObjectId; connectedPrayer: ConnectedPrayer } =>
+            p.isActive && isObligatoryPrayer(p) && !!p.connectedPrayer,
+    );
+
+    // 3. Fetch existing habit instances matching this template or name
+    const existingInstances = await UserHabit.find({
+        user: userId,
+        $or: [
+            { template: habitId },
+            { name: { $in: ['Sunnah Prayer', 'Fajr Sunnah', 'Dhuhr Sunnah', 'Maghrib Sunnah', 'Isha Sunnah'] } },
+            { name: { $regex: /(sunnah|12 sunnah)/i } },
+        ],
+    })
+        .select('_id isActive connectedPrayer name parent displayOrder')
+        .lean();
+
+    // Check if all 4 are already active in their expected state
+    let allAlreadyActive = true;
+    for (const config of SUNNAH_PRAYER_CONFIG) {
+        const matchingPrayer = activePrayers.find(p => isSamePrayer(p.connectedPrayer, config.prayer));
+        const expectedParent = matchingPrayer?._id?.toString() ?? null;
+        const expectedName = matchingPrayer ? 'Sunnah Prayer' : config.standaloneName;
+
+        const existing = existingInstances.find(h =>
+            isSamePrayer(h.connectedPrayer, config.prayer) ||
+            (h.name && h.name.toLowerCase().includes(config.cleanName.toLowerCase()))
+        );
+
+        if (!existing || !existing.isActive) {
+            allAlreadyActive = false;
+            break;
+        }
+        const currentParent = existing.parent?.toString() ?? null;
+        if (currentParent !== expectedParent || existing.name !== expectedName) {
+            allAlreadyActive = false;
+            break;
+        }
+    }
+
+    if (allAlreadyActive && existingInstances.length >= 4) {
+        throw new BadRequestError('Habit is already activated.');
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    const newHabits: any[] = [];
+    const reactivatedIds: Types.ObjectId[] = [];
+
+    try {
+        let nextDisplayOrder = await getNextDisplayOrder(userId, session);
+
+        for (const config of SUNNAH_PRAYER_CONFIG) {
+            const matchingPrayer = activePrayers.find(p => isSamePrayer(p.connectedPrayer, config.prayer));
+            const targetParent = matchingPrayer?._id ?? null;
+            const targetName = matchingPrayer ? 'Sunnah Prayer' : config.standaloneName;
+            const targetOrder = targetParent
+                ? (matchingPrayer?.displayOrder ?? nextDisplayOrder++)
+                : nextDisplayOrder++;
+
+            const existing = existingInstances.find(h =>
+                isSamePrayer(h.connectedPrayer, config.prayer) ||
+                (h.name && h.name.toLowerCase().includes(config.cleanName.toLowerCase()))
+            );
+
+            if (existing) {
+                // Update / reactivate existing instance
+                await UserHabit.updateOne(
+                    { _id: existing._id },
+                    {
+                        $set: {
+                            isActive: true,
+                            startDate: new Date(),
+                            parent: targetParent,
+                            name: targetName,
+                            connectedPrayer: config.prayer,
+                            displayOrder: targetOrder,
+                            showOnTodayScreen: true,
+                            habitType: HABIT_TYPES.SUNNAH_PRAYER,
+                            connectedHabits: [],
+                        },
+                    },
+                    { session },
+                );
+
+                reactivatedIds.push(existing._id as Types.ObjectId);
+
+                if (targetParent) {
+                    await connectHabitToParentById(targetParent, existing._id as Types.ObjectId, session);
+                } else {
+                    // Remove from any parent connectedHabits if it was previously attached
+                    await UserHabit.updateMany(
+                        { 'connectedHabits.userHabit': existing._id },
+                        { $pull: { connectedHabits: { userHabit: existing._id } } },
+                        { session },
+                    );
+                }
+
+                // Handle daily HabitLog
+                const existingLog = await HabitLog.findOne({
+                    userHabit: existing._id,
+                    date,
+                }).session(session);
+
+                if (!existingLog) {
+                    await HabitLog.create(
+                        [{ user: userId, userHabit: existing._id, date, status: LOG_STATUS.PENDING }],
+                        { session },
+                    );
+                } else if (existingLog.status === LOG_STATUS.SKIPPED) {
+                    await HabitLog.updateOne(
+                        { _id: existingLog._id },
+                        { $set: { status: LOG_STATUS.PENDING, skippedAt: null } },
+                        { session },
+                    );
+                }
+            } else {
+                // Create brand new instance
+                const payload = {
+                    ...buildHabitPayload(userId, template, targetOrder),
+                    name: targetName,
+                    parent: targetParent,
+                    connectedPrayer: config.prayer,
+                    isActive: true,
+                    showOnTodayScreen: true,
+                    habitType: HABIT_TYPES.SUNNAH_PRAYER,
+                    connectedHabits: [],
+                };
+
+                const [created] = await UserHabit.create([payload], { session });
+                newHabits.push(created);
+
+                if (targetParent) {
+                    await connectHabitToParentById(targetParent, created._id as Types.ObjectId, session);
+                }
+
+                await HabitLog.create(
+                    [{ user: userId, userHabit: created._id, date, status: LOG_STATUS.PENDING }],
+                    { session },
+                );
+            }
+        }
+
+        await session.commitTransaction();
+
+        return {
+            added: newHabits.map(h => ({ _id: h._id, name: h.name })),
+            reactivated: reactivatedIds.map(id => ({ _id: id })),
+            skipped: null,
+        };
+    } catch (error: any) {
+        await session.abortTransaction();
+        if (error instanceof BadRequestError) throw error;
+        console.error('Error activating Sunnah prayer habit:', error);
+        throw new InternalServerError('Failed to activate habit. Please try again later.');
+    } finally {
+        await session.endSession();
+    }
+};
+
+/**
+ * Deactivates all instances of 12 Sunnah Prayers habit for the user.
+ */
+export const deactivateSunnahPrayersHabit = async (
+    userId: Types.ObjectId,
+    habitId: string,
+    date: string,
+) => {
+    // 1. Fetch target instances outside transaction
+    const activeInstances = await UserHabit.find({
+        user: userId,
+        isActive: true,
+        $or: [
+            { template: habitId },
+            { name: { $in: ['Sunnah Prayer', 'Fajr Sunnah', 'Dhuhr Sunnah', 'Maghrib Sunnah', 'Isha Sunnah'] } },
+            { name: { $regex: /sunnah/i } },
+        ],
+    })
+        .select('_id')
+        .lean();
+
+    if (!activeInstances.length) {
+        throw new BadRequestError('Habit is already deactivated');
+    }
+
+    const instanceIds = activeInstances.map(h => h._id);
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        await UserHabit.updateMany(
+            { _id: { $in: instanceIds } },
+            { $set: { isActive: false, parent: null, connectedHabits: [] } },
+            { session },
+        );
+
+        await HabitLog.updateMany(
+            { userHabit: { $in: instanceIds }, date, status: LOG_STATUS.PENDING },
+            { $set: { status: LOG_STATUS.SKIPPED, skippedAt: new Date() } },
+            { session },
+        );
+
+        await Promise.all(
+            instanceIds.map(id => disconnectFromParents(id, session)),
+        );
+
+        await session.commitTransaction();
+    } catch (error: any) {
+        await session.abortTransaction();
+        if (error instanceof BadRequestError) throw error;
+        console.error('Error deactivating Sunnah prayer habit:', error);
+        throw new InternalServerError('Failed to deactivate habit. Please try again later.');
+    } finally {
+        await session.endSession();
+    }
+};
+
+/**
  * Activates a single, non-grouped, non-connected-obligatory template-based
  * habit — reactivating the user's existing instance if one exists, or
  * creating a fresh one otherwise.
@@ -1022,14 +1400,14 @@ export const activateSingleHabit = async (
             await connectToParent(userId, template.parent, habitToActivate._id, session);
         }
 
-        // If this habit is an obligatory prayer, link any active Adhkar habits under it
+        // If this habit is an obligatory prayer, link any active Adhkar or Sunnah habits under it
         const prayerName = habitToActivate.connectedPrayer ?? template.connectedPrayer;
         if (template.habitType === HABIT_TYPES.OBLIGATORY_PRAYER || prayerName) {
             const connectedObligatory = await UserHabit.find({
                 user: userId,
                 isActive: true,
             })
-                .populate<{ template: IHabitTemplate }>('template', 'isConnectedObligatory')
+                .populate<{ template: IHabitTemplate }>('template', 'isConnectedObligatory name habitType')
                 .session(session);
 
             for (const item of connectedObligatory) {
@@ -1051,6 +1429,31 @@ export const activateSingleHabit = async (
                                 $set: {
                                     parent: habitToActivate._id,
                                     name: 'Adhkar After Prayer',
+                                    connectedPrayer: prayerName,
+                                },
+                            },
+                            { session },
+                        );
+                        await connectHabitToParentById(habitToActivate._id, item._id, session);
+                    }
+                } else if (isSunnahPrayer(item)) {
+                    let itemPrayer = item.connectedPrayer ? item.connectedPrayer.trim().toLowerCase() : null;
+                    if (!itemPrayer && item.name) {
+                        for (const p of ['fajr', 'dhuhr', 'maghrib', 'isha']) {
+                            if (item.name.toLowerCase().includes(p)) {
+                                itemPrayer = p;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isSamePrayer(itemPrayer ?? item.connectedPrayer, prayerName)) {
+                        await UserHabit.updateOne(
+                            { _id: item._id },
+                            {
+                                $set: {
+                                    parent: habitToActivate._id,
+                                    name: 'Sunnah Prayer',
                                     connectedPrayer: prayerName,
                                 },
                             },
@@ -1180,7 +1583,7 @@ export const connectHabitToParentById = async (
         .session(session ?? null);
 
     if (!parentHabit) return;
-    if (isAdhkarAfterPrayer(parentHabit)) return;
+    if (isAdhkarAfterPrayer(parentHabit) || isSunnahPrayer(parentHabit)) return;
 
     const alreadyConnected = parentHabit.connectedHabits?.some(
         (c: IConnectedHabit) => c.userHabit.toString() === childHabitId.toString(),
@@ -1223,7 +1626,7 @@ export const connectToParent = async (
 
     if (!parentUserHabit) return;
     if (parentUserHabit._id.toString() === newUserHabitId.toString()) return;
-    if (isAdhkarAfterPrayer(parentUserHabit)) return;
+    if (isAdhkarAfterPrayer(parentUserHabit) || isSunnahPrayer(parentUserHabit)) return;
 
     const alreadyConnected = parentUserHabit.connectedHabits?.some(
         (c: IConnectedHabit) => c.userHabit.toString() === newUserHabitId.toString(),
@@ -1268,10 +1671,13 @@ export const disconnectFromParents = async (userHabitId: Types.ObjectId, session
 export const isObligatoryPrayer = (h: any): boolean => {
     if (!h) return false;
     if (isAdhkarAfterPrayer(h)) return false;
+    if (isSunnahPrayer(h)) return false;
     const template = h.template as any;
+    if (template?.habitType === HABIT_TYPES.SUNNAH_PRAYER || h.habitType === HABIT_TYPES.SUNNAH_PRAYER) return false;
+    const name = (h.name ?? template?.name ?? '').toLowerCase();
+    if (name.includes('sunnah')) return false;
     if (template?.habitType === HABIT_TYPES.OBLIGATORY_PRAYER) return true;
     if (h.habitType === HABIT_TYPES.OBLIGATORY_PRAYER) return true;
-    const name = (h.name ?? template?.name ?? '').toLowerCase();
     const isPrayerCategory = (h.category ?? template?.category)?.toLowerCase() === 'prayer';
     const isObligatoryName = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].some(n => name.includes(n));
     return isPrayerCategory && isObligatoryName;
@@ -1369,6 +1775,71 @@ export const selfHealActiveHabits = async (
                 }
                 // Do NOT add to nestedHabitIds so it appears in Today list as top-level item
             }
+        } else if (isSunnahPrayer(h)) {
+            // Sunnah habits must NEVER have connectedHabits
+            if (h.connectedHabits && h.connectedHabits.length > 0) {
+                h.connectedHabits = [];
+                await UserHabit.updateOne(
+                    { _id: h._id },
+                    { $set: { connectedHabits: [] } },
+                );
+            }
+
+            let prayerKey = h.connectedPrayer ? h.connectedPrayer.trim().toLowerCase() : null;
+            if (!prayerKey && h.name) {
+                for (const p of ['fajr', 'dhuhr', 'maghrib', 'isha']) {
+                    if (h.name.toLowerCase().includes(p)) {
+                        prayerKey = p;
+                        break;
+                    }
+                }
+            }
+
+            const cleanPrayer = formatPrayerCleanName(prayerKey ?? h.connectedPrayer);
+            const matchingPrayer = prayerKey ? activePrayersMap.get(prayerKey) : null;
+
+            // Clear invalid self-parenting
+            if (h.parent && h.parent.toString() === h._id.toString()) {
+                h.parent = null;
+            }
+
+            if (matchingPrayer && matchingPrayer._id.toString() !== h._id.toString()) {
+                // Obligatory prayer is active -> must be nested under prayer with name 'Sunnah Prayer'
+                const expectedName = 'Sunnah Prayer';
+                if (h.parent?.toString() !== matchingPrayer._id.toString() || h.name !== expectedName) {
+                    parentUpdates.push({
+                        childId: h._id as Types.ObjectId,
+                        parentId: matchingPrayer._id as Types.ObjectId,
+                        name: expectedName,
+                        connectedPrayer: matchingPrayer.connectedPrayer ?? cleanPrayer,
+                    });
+                    h.parent = matchingPrayer._id;
+                    h.name = expectedName;
+                }
+
+                const inConnected = matchingPrayer.connectedHabits?.some(
+                    (c: any) => (c.userHabit?._id?.toString() ?? c.userHabit?.toString()) === h._id.toString(),
+                );
+                if (!inConnected) {
+                    repairs.push({ parentId: matchingPrayer._id as Types.ObjectId, childId: h._id as Types.ObjectId });
+                }
+
+                nestedHabitIds.add(h._id.toString());
+            } else {
+                // Obligatory prayer is NOT active -> must be standalone with name '<Prayer> Sunnah'
+                const expectedName = `${cleanPrayer} Sunnah`;
+                if (h.parent !== null || h.name !== expectedName) {
+                    parentUpdates.push({
+                        childId: h._id as Types.ObjectId,
+                        parentId: null,
+                        name: expectedName,
+                        connectedPrayer: cleanPrayer,
+                    });
+                    h.parent = null;
+                    h.name = expectedName;
+                }
+                // Do NOT add to nestedHabitIds so it appears in Today list as top-level item
+            }
         } else if (h.parent) {
             if (h.parent.toString() === h._id.toString()) {
                 h.parent = null;
@@ -1391,7 +1862,7 @@ export const selfHealActiveHabits = async (
             }
         }
 
-        if (!isAdhkarAfterPrayer(h)) {
+        if (!isAdhkarAfterPrayer(h) && !isSunnahPrayer(h)) {
             for (const c of h.connectedHabits ?? []) {
                 const id = c.userHabit?._id?.toString() ?? c.userHabit?.toString();
                 if (id && id !== h._id.toString()) nestedHabitIds.add(id);

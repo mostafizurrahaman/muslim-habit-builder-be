@@ -16,13 +16,17 @@ import {
   activateCustomHabit,
   activateGroupHabit,
   activateSingleHabit,
+  activateSunnahPrayersHabit,
   deactivateConnectedObligatoryHabit,
   deactivateGroupHabit,
   deactivateSingleHabit,
+  deactivateSunnahPrayersHabit,
   disconnectFromParents,
   formatPrayerCleanName,
   getNextDisplayOrder,
   isAdhkarAfterPrayer,
+  isSunnahPrayer,
+  isSunnahPrayersTemplate,
   selfHealActiveHabits,
 } from './user.habit.helper';
 import { IFrequency, IUserHabit } from './user.habit.interface';
@@ -54,6 +58,11 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
     const template = await HabitTemplate.findById(habitId).lean();
 
+    if (isSunnahPrayersTemplate(template)) {
+      await deactivateSunnahPrayersHabit(userId, habitId, date);
+      return null;
+    }
+
     if (template?.isConnectedObligatory) {
       await deactivateConnectedObligatoryHabit(userId, habitId, date);
       return null;
@@ -72,6 +81,11 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
       .lean();
 
     if (userHabitById) {
+      if (isSunnahPrayersTemplate(userHabitById.template) || isSunnahPrayer(userHabitById)) {
+        const tmplId = userHabitById.template?._id?.toString() ?? habitId;
+        await deactivateSunnahPrayersHabit(userId, tmplId, date);
+        return null;
+      }
       if (userHabitById.template?.isConnectedObligatory || isAdhkarAfterPrayer(userHabitById)) {
         const tmplId = userHabitById.template?._id?.toString() ?? habitId;
         await deactivateConnectedObligatoryHabit(userId, tmplId, date);
@@ -93,6 +107,9 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
     if (userHabit) {
       if (userHabit.template) {
         const tmpl = await HabitTemplate.findById(userHabit.template).lean();
+        if (isSunnahPrayersTemplate(tmpl) || isSunnahPrayer(userHabit)) {
+          return activateSunnahPrayersHabit(userId, tmpl ?? {}, tmpl?._id?.toString() ?? habitId, date);
+        }
         if (tmpl?.isConnectedObligatory || isAdhkarAfterPrayer(userHabit)) {
           return activateConnectedObligatoryHabit(userId, tmpl ?? {}, tmpl?._id?.toString() ?? habitId, date);
         }
@@ -113,6 +130,10 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
   if (childTemplates.length > 0) {
     return activateGroupHabit(userId, childTemplates, date);
+  }
+
+  if (isSunnahPrayersTemplate(template)) {
+    return activateSunnahPrayersHabit(userId, template, habitId, date);
   }
 
   if (template.isConnectedObligatory) {
@@ -366,13 +387,14 @@ const dedupeConnectedChildren = <T extends { userHabit?: unknown }>(children: T[
 const resolveHabitDisplay = (h: any) => {
   const template = h.template as any | null | undefined;
   const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(template);
+  const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(template);
 
   return {
     name: h.name ?? template?.name ?? null,
     category: template?.category ?? h.category ?? null,
     infoContent: template?.infoContent ?? null,
     pdfContent: template?.pdfContent ?? null,
-    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : (template?.habitType ?? h.habitType ?? null),
+    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : isSunnah ? HABIT_TYPES.SUNNAH_PRAYER : (template?.habitType ?? h.habitType ?? null),
     hasAdhkarSet: isAdhkar ? true : !!template?.adhkarSet,
     adhkarSet: isAdhkar ? true : !!template?.adhkarSet,
     hasQuranContent: !!template?.quranContent,
@@ -445,13 +467,16 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
   const todayHabits = habits.filter((h) => shouldShowToday(h.frequency, h.startDate));
 
-  // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer).
+  // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer or Sunnah prayer).
   const seenTopLevelTemplates = new Set<string>();
   const uniqueTodayHabits = todayHabits.filter((h) => {
     const templateId = toIdString((h as { template?: unknown }).template);
     if (!templateId) return true;
     const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
-    const prayerKey = isAdhkar ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? '')) : (h.connectedPrayer?.toLowerCase() ?? '');
+    const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
+    const prayerKey = (isAdhkar || isSunnah)
+      ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
+      : (h.connectedPrayer?.toLowerCase() ?? '');
     const dedupeKey = `${templateId}_${prayerKey}`;
     if (seenTopLevelTemplates.has(dedupeKey)) return false;
     seenTopLevelTemplates.add(dedupeKey);
@@ -463,7 +488,13 @@ const getTodayHabits = async (user: IUser, category?: string) => {
   const allUserHabitIds = uniqueTodayHabits.map((h) => h._id);
 
   const connectedIds = uniqueTodayHabits
-    .filter((h) => !isAdhkarAfterPrayer(h) && !isAdhkarAfterPrayer((h as any).template))
+    .filter(
+      (h) =>
+        !isAdhkarAfterPrayer(h) &&
+        !isAdhkarAfterPrayer((h as any).template) &&
+        !isSunnahPrayer(h) &&
+        !isSunnahPrayer((h as any).template),
+    )
     .flatMap((h) =>
       dedupeConnectedChildren(
         (h.connectedHabits ?? []).filter((c: any) => {
@@ -506,8 +537,9 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
   const result = uniqueTodayHabits.map((h) => {
     const parentIsAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
+    const parentIsSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
 
-    const connectedHabits = parentIsAdhkar
+    const connectedHabits = (parentIsAdhkar || parentIsSunnah)
       ? []
       : dedupeConnectedChildren(
           (h.connectedHabits ?? [])
@@ -529,16 +561,17 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             const childId = child?._id?.toString() ?? c.userHabit?.toString();
             const childDisplay = resolveHabitDisplay(child ?? {});
             const childIsAdhkar = isAdhkarAfterPrayer(child) || isAdhkarAfterPrayer(child?.template);
+            const childIsSunnah = isSunnahPrayer(child) || isSunnahPrayer(child?.template);
 
             return {
               _id: child?._id ?? c.userHabit,
-              name: childIsAdhkar ? 'Adhkar After Prayer' : childDisplay.name,
+              name: childIsAdhkar ? 'Adhkar After Prayer' : childIsSunnah ? 'Sunnah Prayer' : childDisplay.name,
               category: childDisplay.category,
               infoContent: childDisplay.infoContent,
               pdfContent: childDisplay.pdfContent,
               adhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
               hasAdhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
-              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childDisplay.habitType,
+              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childIsSunnah ? HABIT_TYPES.SUNNAH_PRAYER : childDisplay.habitType,
               hasQuranContent: childDisplay.hasQuranContent,
               customDetails: child?.customDetails ?? null,
               connectedPrayer: child?.connectedPrayer ?? h.connectedPrayer ?? null,
@@ -552,7 +585,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     // ── Display status determine ───────────────────────────
     let finalDisplayStatus: string;
 
-    if (!parentIsAdhkar && connectedHabits.length > 0) {
+    if (!parentIsAdhkar && !parentIsSunnah && connectedHabits.length > 0) {
       if (databaseParentStatus === 'Skipped') {
         // If the parent is skipped, mark it as Skipped so it sorts lower
         finalDisplayStatus = 'Skipped';
@@ -571,6 +604,8 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     const parentCleanPrayer = formatPrayerCleanName(h.connectedPrayer);
     const topLevelName = parentIsAdhkar
       ? (h.parent ? 'Adhkar After Prayer' : `${parentCleanPrayer} Adhkar After Prayer`)
+      : parentIsSunnah
+      ? (h.parent ? 'Sunnah Prayer' : (h.name ?? `${parentCleanPrayer} Sunnah`))
       : parentDisplay.name;
 
     return {
@@ -578,7 +613,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
       name: topLevelName,
       category: parentDisplay.category,
       infoContent: parentDisplay.infoContent,
-      habitType: parentIsAdhkar ? HABIT_TYPES.ADHKAR : parentDisplay.habitType,
+      habitType: parentIsAdhkar ? HABIT_TYPES.ADHKAR : parentIsSunnah ? HABIT_TYPES.SUNNAH_PRAYER : parentDisplay.habitType,
       pdfContent: parentDisplay.pdfContent,
       hasAdhkarSet: parentIsAdhkar ? true : parentDisplay.hasAdhkarSet,
       adhkarSet: parentIsAdhkar ? true : parentDisplay.hasAdhkarSet,
@@ -588,7 +623,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
       connectedPrayer: h.connectedPrayer ?? null,
       displayOrder: h.displayOrder ?? 0,
       status: finalDisplayStatus,
-      connectedHabits: parentIsAdhkar ? [] : connectedHabits,
+      connectedHabits: (parentIsAdhkar || parentIsSunnah) ? [] : connectedHabits,
     };
   });
 
@@ -713,13 +748,16 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
 
   const dateHabits = habits.filter((h) => shouldShowOnDate(h.frequency, h.startDate, h._id.toString()));
 
-  // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer).
+  // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer or Sunnah prayer).
   const seenTopLevelTemplates = new Set<string>();
   const uniqueDateHabits = dateHabits.filter((h) => {
     const templateId = toIdString((h as { template?: unknown }).template);
     if (!templateId) return true;
     const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
-    const prayerKey = isAdhkar ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? '')) : (h.connectedPrayer?.toLowerCase() ?? '');
+    const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
+    const prayerKey = (isAdhkar || isSunnah)
+      ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
+      : (h.connectedPrayer?.toLowerCase() ?? '');
     const dedupeKey = `${templateId}_${prayerKey}`;
     if (seenTopLevelTemplates.has(dedupeKey)) return false;
     seenTopLevelTemplates.add(dedupeKey);
@@ -730,7 +768,13 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
   const allUserHabitIds = uniqueDateHabits.map((h) => h._id);
 
   const connectedIds = uniqueDateHabits
-    .filter((h) => !isAdhkarAfterPrayer(h) && !isAdhkarAfterPrayer((h as any).template))
+    .filter(
+      (h) =>
+        !isAdhkarAfterPrayer(h) &&
+        !isAdhkarAfterPrayer((h as any).template) &&
+        !isSunnahPrayer(h) &&
+        !isSunnahPrayer((h as any).template),
+    )
     .flatMap((h) =>
       dedupeConnectedChildren(
         (h.connectedHabits ?? []).filter((c: any) => {
@@ -779,8 +823,9 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
 
   const result = uniqueDateHabits.map((h) => {
     const parentIsAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
+    const parentIsSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
 
-    const connectedHabits = parentIsAdhkar
+    const connectedHabits = (parentIsAdhkar || parentIsSunnah)
       ? []
       : dedupeConnectedChildren(
           (h.connectedHabits ?? [])
@@ -803,16 +848,17 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
             const childId = child?._id?.toString() ?? c.userHabit?.toString();
             const childDisplay = resolveHabitDisplay(child ?? {});
             const childIsAdhkar = isAdhkarAfterPrayer(child) || isAdhkarAfterPrayer(child?.template);
+            const childIsSunnah = isSunnahPrayer(child) || isSunnahPrayer(child?.template);
 
             return {
               _id: child?._id ?? c.userHabit,
-              name: childIsAdhkar ? 'Adhkar After Prayer' : childDisplay.name,
+              name: childIsAdhkar ? 'Adhkar After Prayer' : childIsSunnah ? 'Sunnah Prayer' : childDisplay.name,
               category: childDisplay.category,
               infoContent: childDisplay.infoContent,
               pdfContent: childDisplay.pdfContent,
               adhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
               hasAdhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
-              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childDisplay.habitType,
+              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childIsSunnah ? HABIT_TYPES.SUNNAH_PRAYER : childDisplay.habitType,
               quranContent: childDisplay.hasQuranContent,
               customDetails: child?.customDetails ?? null,
               connectedPrayer: child?.connectedPrayer ?? h.connectedPrayer ?? null,
@@ -826,7 +872,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
     // ── Display status determine ───────────────────────────
     let finalDisplayStatus: string;
 
-    if (!parentIsAdhkar && connectedHabits.length > 0) {
+    if (!parentIsAdhkar && !parentIsSunnah && connectedHabits.length > 0) {
       if (databaseParentStatus === 'Skipped') {
         finalDisplayStatus = 'Skipped';
       } else if (databaseParentStatus === 'Completed' && connectedHabits.every((ch) => ch.status === 'Completed')) {
@@ -842,6 +888,8 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
     const parentCleanPrayer = formatPrayerCleanName(h.connectedPrayer);
     const topLevelName = parentIsAdhkar
       ? (h.parent ? 'Adhkar After Prayer' : `${parentCleanPrayer} Adhkar After Prayer`)
+      : parentIsSunnah
+      ? (h.parent ? 'Sunnah Prayer' : (h.name ?? `${parentCleanPrayer} Sunnah`))
       : parentDisplay.name;
 
     return {
@@ -849,7 +897,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
       name: topLevelName,
       category: parentDisplay.category,
       infoContent: parentDisplay.infoContent,
-      habitType: parentIsAdhkar ? HABIT_TYPES.ADHKAR : parentDisplay.habitType,
+      habitType: parentIsAdhkar ? HABIT_TYPES.ADHKAR : parentIsSunnah ? HABIT_TYPES.SUNNAH_PRAYER : parentDisplay.habitType,
       pdfContent: parentDisplay.pdfContent,
       hasAdhkarSet: parentIsAdhkar ? true : parentDisplay.hasAdhkarSet,
       adhkarSet: parentIsAdhkar ? true : parentDisplay.hasAdhkarSet,
@@ -859,7 +907,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
       connectedPrayer: h.connectedPrayer ?? null,
       displayOrder: h.displayOrder ?? 0,
       status: finalDisplayStatus,
-      connectedHabits: parentIsAdhkar ? [] : connectedHabits,
+      connectedHabits: (parentIsAdhkar || parentIsSunnah) ? [] : connectedHabits,
     };
   });
 
@@ -1206,11 +1254,12 @@ const updateUserHabit = async (user: IUser, userHabitId: string, payload: EditHa
 const resolveHabitDetailDisplay = (h: any) => {
   const template = h.template as any | null | undefined;
   const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(template);
+  const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(template);
 
   return {
     name: h.name ?? template?.name ?? null,
     category: template?.category ?? h.category ?? null,
-    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : (template?.habitType ?? null),
+    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : isSunnah ? HABIT_TYPES.SUNNAH_PRAYER : (template?.habitType ?? null),
     infoContent: template?.infoContent ?? null,
     pdfContent: template?.pdfContent ?? null,
     hasAdhkarSet: isAdhkar ? true : !!template?.adhkarSet,
@@ -1305,9 +1354,12 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
 
   const display = resolveHabitDetailDisplay(habit);
   const isAdhkar = isAdhkarAfterPrayer(habit) || isAdhkarAfterPrayer(template);
+  const isSunnah = isSunnahPrayer(habit) || isSunnahPrayer(template);
   const cleanPrayer = formatPrayerCleanName(habit.connectedPrayer ?? template?.connectedPrayer);
   const habitDetailName = isAdhkar
     ? (habit.parent ? 'Adhkar After Prayer' : `${cleanPrayer} Adhkar After Prayer`)
+    : isSunnah
+    ? (habit.parent ? 'Sunnah Prayer' : (habit.name ?? `${cleanPrayer} Sunnah`))
     : display.name;
   const isObligatoryPrayer = display.habitType === HABIT_TYPES.OBLIGATORY_PRAYER;
 
@@ -1315,7 +1367,7 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
     _id: habit._id,
     name: habitDetailName,
     category: display.category,
-    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : display.habitType,
+    habitType: isAdhkar ? HABIT_TYPES.ADHKAR : isSunnah ? HABIT_TYPES.SUNNAH_PRAYER : display.habitType,
     connectedPrayer: isPrayerLocked ? (template?.connectedPrayer ?? null) : (habit.connectedPrayer ?? null),
     isPrayerLocked,
     location: habit.location ?? null,
@@ -1341,17 +1393,18 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
             const child = c.userHabit;
             const childDisplay = resolveHabitDetailDisplay(child ?? {});
             const childIsAdhkar = isAdhkarAfterPrayer(child) || isAdhkarAfterPrayer(child?.template);
+            const childIsSunnah = isSunnahPrayer(child) || isSunnahPrayer(child?.template);
 
             return {
               _id: child?._id ?? c.userHabit,
-              name: childIsAdhkar ? 'Adhkar After Prayer' : childDisplay.name,
+              name: childIsAdhkar ? 'Adhkar After Prayer' : childIsSunnah ? 'Sunnah Prayer' : childDisplay.name,
               isLocked: childDisplay.isLocked,
-              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childDisplay.habitType,
+              habitType: childIsAdhkar ? HABIT_TYPES.ADHKAR : childIsSunnah ? HABIT_TYPES.SUNNAH_PRAYER : childDisplay.habitType,
               hasAdhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
               adhkarSet: childIsAdhkar ? true : childDisplay.hasAdhkarSet,
             };
           })
-      : isAdhkar
+      : (isAdhkar || isSunnah)
       ? []
       : undefined,
   };

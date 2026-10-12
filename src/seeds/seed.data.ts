@@ -144,6 +144,24 @@ export const seedHabitTemplatesData = [
     isActive: true,
     linkAdhkarSet: true,
   },
+  {
+    name: '12 Sunnah Prayers',
+    category: HABIT_CATEGORIES.PRAYER,
+    connectedPrayer: null,
+    allowConnectedPrayers: [],
+    isPrayerLocked: true,
+    habitType: HABIT_TYPES.SUNNAH_PRAYER,
+    supportsLocation: HABIT_LOCATIONS.HOME,
+    defaultFrequency: { type: FREQUENCY_TYPES.DAILY },
+    allowedFrequencies: [FREQUENCIES.DAILY],
+    level: HABIT_LEVELS.BEGINNER,
+    isPreBuilt: true,
+    isLocked: false,
+    isGuestLocked: false,
+    status: HABIT_STATUS.PUBLISHED,
+    isActive: true,
+    infoContent: 'Perform the 12 regular Sunnah (Rawatib) prayers daily.',
+  },
 ];
 
 export const seedContentData = [
