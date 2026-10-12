@@ -117,6 +117,16 @@ const getParentHabits = asyncHandler(async (req: Request, res: Response) => {
 });
 
 
+const removeHabitPdf = asyncHandler(async (req: Request, res: Response) => {
+    const result = await habitTemplateService.removeHabitPdf(req.params.id as string);
+    sendResponse(res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: 'Habit PDF removed successfully',
+        data: result,
+    });
+});
+
 export const habitTemplateController = {
     createHabitTemplate,
     getSystemHabitsForUsers,
@@ -127,6 +137,7 @@ export const habitTemplateController = {
     updateDraftHabitToPublish,
     unpublishHabitTemplate,
     updateTemplateHabit,
+    removeHabitPdf,
     deleteHabitTemplate,
 };
 

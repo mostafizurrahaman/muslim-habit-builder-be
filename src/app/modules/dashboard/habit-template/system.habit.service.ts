@@ -388,6 +388,23 @@ const updateSystemHabit = async (
     }
 };
 
+const removeHabitPdf = async (id: string) => {
+    const habit = await HabitTemplate.findById(id);
+    if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
+
+    if (habit.pdfContent) {
+        try {
+            await deleteImageFromCloudinary(habit.pdfContent);
+        } catch (error) {
+            console.error('[HabitTemplate] Failed to delete PDF from Cloudinary:', error);
+        }
+        habit.pdfContent = null;
+        await habit.save();
+    }
+
+    return null;
+};
+
 const deleteSystemHabit = async (id: string) => {
     const habit = await HabitTemplate.findById(id);
     if (!habit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
@@ -409,5 +426,6 @@ export const habitTemplateService = {
     getParentHabits,
     getAllHabits,
     updateSystemHabit,
+    removeHabitPdf,
     deleteSystemHabit
 }

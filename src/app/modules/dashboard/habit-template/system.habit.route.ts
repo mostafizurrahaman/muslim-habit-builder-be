@@ -47,6 +47,12 @@ habitTemplateRouter.delete(
     habitTemplateController.deleteHabitTemplate,
 );
 
+habitTemplateRouter.delete(
+    '/remove-pdf/:id',
+    authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
+    habitTemplateController.removeHabitPdf,
+);
+
 habitTemplateRouter.patch(
     '/publish/:id',
     authMiddleware(USER_ROLE.ADMIN, USER_ROLE.SUPER_ADMIN),
