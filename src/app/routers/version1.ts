@@ -11,6 +11,7 @@ import { notificationRoutes } from '../modules/Notification/notification.routes'
 import userHabitRouter from '../modules/user-habit/user.habit.route';
 import userRouter from '../modules/user/user.route';
 import subscriptionRouter from '../modules/subscription/subscription.routes';
+import contactDetailRouter from '../modules/contact-detail/contact.detail.route';
 
 
 const routersVersionOne = express.Router();
@@ -63,6 +64,10 @@ const appRouters = [
   {
     path: '/fcm-token',
     router: fcmTokenRoutes,
+  },
+  {
+    path: '/contact-detail',
+    router: contactDetailRouter,
   },
 ];
 
