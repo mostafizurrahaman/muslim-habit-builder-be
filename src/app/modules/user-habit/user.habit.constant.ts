@@ -6,7 +6,7 @@ export const USER_HABIT_MESSAGES = {
   DEACTIVATED: 'User habit deactivated successfully',
   CONTENT_FETCHED: 'Dynamic content fetched successfully',
   UPDATED: 'User habit updated successfully',
-  DELETED: 'User habit deleted successfully',
+  DELETED: 'Custom habit deleted successfully',
   FETCHED: 'User habits fetched successfully',
   REORDERED: 'Habits reordered successfully',
   SUB_HABITS_REORDERED: 'Sub-habits reordered successfully',

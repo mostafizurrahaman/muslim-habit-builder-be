@@ -1606,15 +1606,19 @@ const searchHabitsToConnect = async (user: IUser, userHabitId: string, searchTer
 
 // delete custom habit
 const deleteCustomHabit = async (user: IUser, habitId: string) => {
-  const habit = await UserHabit.findById(habitId).select('_id name user isPreBuilt');
+  if (!mongoose.Types.ObjectId.isValid(habitId)) {
+    throw new BadRequestError('Invalid habit ID format');
+  }
+
+  const habit = await UserHabit.findById(habitId).select('_id name user isPreBuilt template');
   if (!habit) {
     throw new NotFoundError('Habit not found');
   }
-  if (habit.isPreBuilt) {
-    throw new BadRequestError('Pre built habits cannot be deleted');
-  }
   if (habit.user.toString() !== user._id.toString()) {
     throw new BadRequestError('You can only delete your own habits');
+  }
+  if (habit.isPreBuilt || habit.template !== null) {
+    throw new BadRequestError('Only custom habits can be deleted');
   }
 
   const habitName = habit.name;
@@ -1622,10 +1626,19 @@ const deleteCustomHabit = async (user: IUser, habitId: string) => {
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
-    // 1. Delete the habit
+
+    // 1. Disconnect from any parent's connectedHabits array
+    await disconnectFromParents(habit._id, session);
+
+    // 2. Disconnect any child habits attached to this custom habit
+    await UserHabit.updateMany({ parent: habit._id }, { $set: { parent: null } }, { session });
+
+    // 3. Delete the habit
     await UserHabit.deleteOne({ _id: habitId }, { session });
-    // 2. Delete associated habit logs
+
+    // 4. Delete associated habit logs
     await HabitLog.deleteMany({ userHabit: habitId }, { session });
+
     await session.commitTransaction();
 
     (async () => {
@@ -1640,6 +1653,8 @@ const deleteCustomHabit = async (user: IUser, habitId: string) => {
         console.error('[UserHabit] Failed to send habit deletion notification:', err);
       }
     })();
+
+    return null;
   } catch (error) {
     await session.abortTransaction();
     throw error;
