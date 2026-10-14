@@ -45,17 +45,6 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
   // ── DEACTIVATE ──
   if (!isActive) {
-    const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
-
-    if (childTemplates.length > 0) {
-      await deactivateGroupHabit(
-        userId,
-        childTemplates.map((c) => c._id),
-        date,
-      );
-      return null;
-    }
-
     const template = await HabitTemplate.findById(habitId).lean();
 
     if (isSunnahPrayersTemplate(template)) {
@@ -65,6 +54,17 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
 
     if (template?.isConnectedObligatory) {
       await deactivateConnectedObligatoryHabit(userId, habitId, date);
+      return null;
+    }
+
+    const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
+
+    if (childTemplates.length > 0) {
+      await deactivateGroupHabit(
+        userId,
+        childTemplates.map((c) => c._id),
+        date,
+      );
       return null;
     }
 
@@ -126,18 +126,18 @@ const toggleHabit = async (user: IUser, habitId: string, isActive: boolean) => {
     throw new BadRequestError('This habit is no longer available');
   }
 
-  const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
-
-  if (childTemplates.length > 0) {
-    return activateGroupHabit(userId, childTemplates, date);
-  }
-
   if (isSunnahPrayersTemplate(template)) {
     return activateSunnahPrayersHabit(userId, template, habitId, date);
   }
 
   if (template.isConnectedObligatory) {
     return activateConnectedObligatoryHabit(userId, template, habitId, date);
+  }
+
+  const childTemplates = await HabitTemplate.find({ group: habitId, isActive: true }).lean();
+
+  if (childTemplates.length > 0) {
+    return activateGroupHabit(userId, childTemplates, date);
   }
 
   return activateSingleHabit(userId, template, habitId, date);
@@ -434,7 +434,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
     .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent isConnectedObligatory' })
     .populate({
       path: 'connectedHabits.userHabit',
-      select: '_id name category customDetails template connectedPrayer frequency startDate habitType',
+      select: '_id name category customDetails template connectedPrayer frequency startDate habitType isActive',
       populate: { path: 'template', select: '_id name category habitType infoContent pdfContent adhkarSet quranContent isConnectedObligatory' },
     })
     .sort({ displayOrder: 1, _id: 1 })
@@ -547,7 +547,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
               const child = c.userHabit;
               return child?.frequency ? shouldShowToday(child.frequency, child.startDate) : true;
             })
-            .filter((c: any) => Boolean(c.userHabit))
+            .filter((c: any) => Boolean(c.userHabit) && (c.userHabit as any).isActive !== false)
             .sort((a: any, b: any) => a.order - b.order),
         )
           .filter((c: any) => {
@@ -709,7 +709,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
     .populate({ path: 'template', select: 'name category infoContent habitType pdfContent adhkarSet quranContent isConnectedObligatory' })
     .populate({
       path: 'connectedHabits.userHabit',
-      select: '_id name category customDetails template connectedPrayer frequency startDate habitType',
+      select: '_id name category customDetails template connectedPrayer frequency startDate habitType isActive',
       populate: { path: 'template', select: '_id name category habitType infoContent pdfContent adhkarSet quranContent isConnectedObligatory' },
     })
     .sort({ displayOrder: 1, _id: 1 })
@@ -834,7 +834,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
               const childId = child?._id?.toString() ?? toIdString(c.userHabit);
               return child?.frequency ? shouldShowOnDate(child.frequency, child.startDate, childId ?? undefined) : true;
             })
-            .filter((c: any) => Boolean(c.userHabit))
+            .filter((c: any) => Boolean(c.userHabit) && (c.userHabit as any).isActive !== false)
             .sort((a: any, b: any) => a.order - b.order),
         )
           .filter((c: any) => {
@@ -1287,7 +1287,7 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
     })
     .populate({
       path: 'connectedHabits.userHabit',
-      select: '_id name category template habitType isLocked allowConnectedPrayers allowedFrequencies frequency connectedPrayer isConnectedObligatory',
+      select: '_id name category template habitType isLocked allowConnectedPrayers allowedFrequencies frequency connectedPrayer isConnectedObligatory isActive',
       populate: {
         path: 'template',
         select:
@@ -1388,6 +1388,7 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
     hasQuranContent: display.hasQuranContent,
     connectedHabits: isObligatoryPrayer
       ? (habit.connectedHabits ?? [])
+          .filter((c: any) => Boolean(c.userHabit) && (c.userHabit as any).isActive !== false)
           .sort((a, b) => a.order - b.order)
           .map((c: any) => {
             const child = c.userHabit;
