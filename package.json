@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "start": "node dist/server.js",
-    "dev": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write .",
+    "start": "node dist/server.js  ",
+    "dev": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only src/server.ts ",
+    "build": "tsc ",
+    "lint": "eslint src/**/*.ts ",
+    "lint:fix": "eslint src/**/*.ts --fix  ",
+    "format": "prettier --write .  ",
     "seed": "cross-env NODE_ENV=development ts-node src/scripts/seed.ts",
     "seed:fresh": "cross-env NODE_ENV=development ts-node src/scripts/seed.ts --fresh"
   },
