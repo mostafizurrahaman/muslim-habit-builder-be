@@ -292,7 +292,7 @@ Related models: UserHabit, HabitLog, User (timezone).
 
 - **Auth:** `user` (not guest)
 - **Purpose:** Combined progress calendar and analytics.
-- **Query (no Zod):** `year`, `month`, `category` (default `all`), `analyticsView` (default `week`)
+- **Query (no Zod):** `year?`, `month?`, `category?` (default `all`), `analyticsView?` (default `week`), `date?` (anchor date for week view navigation, format `YYYY-MM-DD`)
 - **Related models:** UserHabit, HabitLog
 
 ### GET `/api/v1/progress/specific/:habitId`

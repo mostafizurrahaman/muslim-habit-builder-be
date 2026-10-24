@@ -8,7 +8,7 @@ import { habitProgressService } from "./habit.progress.service";
 
 
 const getOverviewProgressAndAnalytics = asyncHandler(async (req: Request, res: Response) => {
-    const result = await habitProgressService.getCombinedProgressAndAnalytics(req.user, req.query as { year: string; month: string; category?: string; analyticsView?: string });
+    const result = await habitProgressService.getCombinedProgressAndAnalytics(req.user, req.query as { year?: string; month?: string; category?: string; analyticsView?: string; date?: string });
     sendResponse(res, {
         statusCode: StatusCodes.OK,
         success: true,

@@ -28,6 +28,7 @@ import {
   isSunnahPrayer,
   isSunnahPrayersTemplate,
   selfHealActiveHabits,
+  sortPrayersByCanonicalOrder,
 } from './user.habit.helper';
 import { IFrequency, IUserHabit } from './user.habit.interface';
 import { UserHabit } from './user.habit.model';
@@ -1267,7 +1268,7 @@ const resolveHabitDetailDisplay = (h: any) => {
     hasQuranContent: !!template?.quranContent,
     isPrayerLocked: template?.isPrayerLocked ?? true,
     isLocked: template?.isLocked ?? false,
-    allowedConnectedPrayers: template?.allowConnectedPrayers ?? [],
+    allowedConnectedPrayers: sortPrayersByCanonicalOrder(template?.allowConnectedPrayers ?? []),
     connectedPrayer: h.prayerCustomizedAt ? (h.connectedPrayer ?? null) : (template?.connectedPrayer ?? h.connectedPrayer ?? null),
   };
 };
@@ -1304,7 +1305,9 @@ const getHabitDetail = async (user: IUser, userHabitId: string) => {
 
   const isPrayerLocked = habit.isPreBuilt ? (template?.isPrayerLocked ?? true) : false;
 
-  const allowedPrayers: string[] = template ? (template?.allowConnectedPrayers ?? []) : (Object.values(OBLIGATORY_PRAYER) as string[]);
+  const allowedPrayers: string[] = sortPrayersByCanonicalOrder(
+    template ? (template?.allowConnectedPrayers ?? []) : (Object.values(OBLIGATORY_PRAYER) as string[])
+  );
   const allowedFrequencies: string[] = template?.allowedFrequencies ?? habit.allowedFrequencies ?? [];
 
   if (template) {

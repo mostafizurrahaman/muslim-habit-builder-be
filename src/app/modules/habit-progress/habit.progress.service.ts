@@ -13,7 +13,7 @@ import { NotFoundError } from "../../errors/request/apiError";
 
 const getCombinedProgressAndAnalytics = async (
     user: IUser, 
-    query: { year?: string; month?: string; category?: string; analyticsView?: string }
+    query: { year?: string; month?: string; category?: string; analyticsView?: string; date?: string }
 ) => {
     try {
         const userId = user._id;
@@ -25,8 +25,10 @@ const getCombinedProgressAndAnalytics = async (
         const currentDeviceTodayStr = buildDateBasedOnTimeZone(user.timezone as string);
         const currentDeviceMoment = moment(currentDeviceTodayStr, 'YYYY-MM-DD');
 
-        const year = query.year ? query.year : '2026';
-        const month = query.month ? String(query.month).padStart(2, '0') : currentDeviceMoment.format('MM');
+        const anchorDate = query.date && moment(query.date, 'YYYY-MM-DD').isValid() ? moment(query.date, 'YYYY-MM-DD') : null;
+
+        const year = query.year ? query.year : (anchorDate ? anchorDate.format('YYYY') : currentDeviceMoment.format('YYYY'));
+        const month = query.month ? String(query.month).padStart(2, '0') : (anchorDate ? anchorDate.format('MM') : currentDeviceMoment.format('MM'));
 
         const targetMonthPrefix = `${year}-${month}`;
         const todayStr = currentDeviceTodayStr;
@@ -161,7 +163,13 @@ const getCombinedProgressAndAnalytics = async (
 
         // Sub-Case 1: Week Data Block
         if (analyticsView === 'week') {
-            const startOfWeek = referenceMoment.clone().startOf('week'); 
+            const anchorMoment = anchorDate
+                ?? (query.year && query.month
+                    ? moment(`${year}-${month}-01`, 'YYYY-MM-DD')
+                    : referenceMoment);
+
+            const startOfWeek = anchorMoment.clone().startOf('week'); 
+            const endOfWeek = startOfWeek.clone().add(6, 'days');
             const weeklyMetrics = [];
             let maxCompleted = 0, bestDay = 'N/A';
 
@@ -174,6 +182,7 @@ const getCombinedProgressAndAnalytics = async (
                 if (dayStr > todayStr || dayStr < userRegisterDateStr) {
                     weeklyMetrics.push({
                         label: dayShortName,
+                        date: dayStr,
                         habitsCompletedCount: 0,
                         completionRatio: 0,
                         status: "" // Clear validation text
@@ -190,13 +199,23 @@ const getCombinedProgressAndAnalytics = async (
                 }
 
                 weeklyMetrics.push({
-                    label: dayShortName, //
+                    label: dayShortName,
+                    date: dayStr,
                     habitsCompletedCount: completedCount, 
                     completionRatio: ratio,
                     status: getLabelByRatio(ratio)
                 });
             }
-            analyticsGraphData = { viewType: 'week', bestDisplayLabel: `Best Day: ${bestDay}`, metrics: weeklyMetrics }; //
+            analyticsGraphData = {
+                viewType: 'week',
+                range: {
+                    startDate: startOfWeek.format('YYYY-MM-DD'),
+                    endDate: endOfWeek.format('YYYY-MM-DD'),
+                    displayLabel: `${startOfWeek.format('D MMM')} - ${endOfWeek.format('D MMM YYYY')}`,
+                },
+                bestDisplayLabel: `Best Day: ${bestDay}`,
+                metrics: weeklyMetrics,
+            };
         }
 
         // Sub-Case 2: Month Data Block
@@ -213,8 +232,7 @@ const getCombinedProgressAndAnalytics = async (
                 const monthShortLabel = moment().month(m - 1).format('MMM'); 
 
                 // FUTURE MONTHS & MONTHS BEFORE REGISTRATION PROTECTION
-                if ((firstDayOfMonthStr > currentMonthStartStr && currentYearStr === '2026') || 
-                    (firstDayOfMonthStr < userRegisterMonthStartStr)) {
+                if (firstDayOfMonthStr > currentMonthStartStr || firstDayOfMonthStr < userRegisterMonthStartStr) {
                     monthlyMetrics.push({
                         label: monthShortLabel,
                         daysCompletedCount: 0,
@@ -242,7 +260,15 @@ const getCombinedProgressAndAnalytics = async (
                     status: getLabelByRatio(mRatio)
                 });
             }
-            analyticsGraphData = { viewType: 'month', bestDisplayLabel: `Best Month: ${bestMonth}`, metrics: monthlyMetrics }; //
+            analyticsGraphData = {
+                viewType: 'month',
+                range: {
+                    year: currentYearStr,
+                    displayLabel: currentYearStr,
+                },
+                bestDisplayLabel: `Best Month: ${bestMonth}`,
+                metrics: monthlyMetrics,
+            };
         }
 
         // Sub-Case 3: Year Data Block
@@ -286,7 +312,16 @@ const getCombinedProgressAndAnalytics = async (
                     status: getLabelByRatio(yRatio)
                 });
             }
-            analyticsGraphData = { viewType: 'year', bestDisplayLabel: `Best Year: ${bestYear}`, metrics: yearlyMetrics }; //
+            analyticsGraphData = {
+                viewType: 'year',
+                range: {
+                    startYear: baseStartYear,
+                    endYear: baseStartYear + 3,
+                    displayLabel: `${baseStartYear} - ${baseStartYear + 3}`,
+                },
+                bestDisplayLabel: `Best Year: ${bestYear}`,
+                metrics: yearlyMetrics,
+            };
         }
 
         return {

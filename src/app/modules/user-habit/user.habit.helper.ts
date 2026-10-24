@@ -793,6 +793,17 @@ export const formatPrayerCleanName = (prayer: string | null | undefined): string
     return clean.charAt(0).toUpperCase() + clean.slice(1);
 };
 
+export const CANONICAL_PRAYER_ORDER = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Isha And Witr'];
+
+export const sortPrayersByCanonicalOrder = (prayers: string[]): string[] => {
+    return [...prayers].sort((a, b) => {
+        const idxA = CANONICAL_PRAYER_ORDER.indexOf(a);
+        const idxB = CANONICAL_PRAYER_ORDER.indexOf(b);
+        return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+    });
+};
+
+
 export const isSunnahPrayersTemplate = (template: any): boolean => {
     if (!template) return false;
     const habitType = template.habitType;
