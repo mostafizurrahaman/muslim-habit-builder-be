@@ -519,7 +519,13 @@ export const activateGroupHabit = async (
     const toCreate: typeof childTemplates = [];
     const skippedNames: string[] = [];
 
-    for (const child of childTemplates) {
+    const sortedChildTemplates = [...childTemplates].sort((a, b) => {
+        const idxA = getCanonicalPrayerIndex(a);
+        const idxB = getCanonicalPrayerIndex(b);
+        return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+    });
+
+    for (const child of sortedChildTemplates) {
         const existing = existingMap.get(child._id.toString());
 
         if (!existing) {
@@ -794,6 +800,56 @@ export const formatPrayerCleanName = (prayer: string | null | undefined): string
 };
 
 export const CANONICAL_PRAYER_ORDER = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Isha And Witr'];
+
+export const getCanonicalPrayerIndex = (h: any): number => {
+    if (!h) return -1;
+    const prayer = (h.connectedPrayer ?? h.template?.connectedPrayer ?? '').trim().toLowerCase();
+    if (prayer === 'fajr') return 0;
+    if (prayer === 'dhuhr') return 1;
+    if (prayer === 'asr') return 2;
+    if (prayer === 'maghrib') return 3;
+    if (prayer === 'isha' || prayer === 'isha and witr') return 4;
+
+    const name = (h.name ?? h.template?.name ?? '').trim().toLowerCase();
+    if (name.includes('fajr')) return 0;
+    if (name.includes('dhuhr')) return 1;
+    if (name.includes('asr')) return 2;
+    if (name.includes('maghrib')) return 3;
+    if (name.includes('isha')) return 4;
+
+    return -1;
+};
+
+export const sortHabitsByCanonicalPrayerOrder = <T extends Record<string, any>>(habits: T[]): T[] => {
+    const baseSorted = [...habits].sort((a, b) => {
+        const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+        if (orderDiff !== 0) return orderDiff;
+        const prayerA = isObligatoryPrayer(a) ? getCanonicalPrayerIndex(a) : -1;
+        const prayerB = isObligatoryPrayer(b) ? getCanonicalPrayerIndex(b) : -1;
+        if (prayerA !== -1 || prayerB !== -1) {
+            return (prayerA === -1 ? 99 : prayerA) - (prayerB === -1 ? 99 : prayerB);
+        }
+        return String(a._id ?? '').localeCompare(String(b._id ?? ''));
+    });
+
+    const sortGroup = (items: T[]) =>
+        [...items].sort((a, b) => {
+            const idxA = getCanonicalPrayerIndex(a);
+            const idxB = getCanonicalPrayerIndex(b);
+            return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+        });
+
+    const sortedObligatory = sortGroup(baseSorted.filter(h => isObligatoryPrayer(h)));
+    const sortedAdhkar = sortGroup(baseSorted.filter(h => isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template)));
+    const sortedSunnah = sortGroup(baseSorted.filter(h => isSunnahPrayer(h) || isSunnahPrayer(h.template)));
+
+    return baseSorted.map(h => {
+        if (isObligatoryPrayer(h)) return sortedObligatory.shift()!;
+        if (isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template)) return sortedAdhkar.shift()!;
+        if (isSunnahPrayer(h) || isSunnahPrayer(h.template)) return sortedSunnah.shift()!;
+        return h;
+    });
+};
 
 export const sortPrayersByCanonicalOrder = (prayers: string[]): string[] => {
     return [...prayers].sort((a, b) => {

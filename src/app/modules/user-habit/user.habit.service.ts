@@ -28,6 +28,7 @@ import {
   isSunnahPrayer,
   isSunnahPrayersTemplate,
   selfHealActiveHabits,
+  sortHabitsByCanonicalPrayerOrder,
   sortPrayersByCanonicalOrder,
 } from './user.habit.helper';
 import { IFrequency, IUserHabit } from './user.habit.interface';
@@ -470,19 +471,21 @@ const getTodayHabits = async (user: IUser, category?: string) => {
 
   // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer or Sunnah prayer).
   const seenTopLevelTemplates = new Set<string>();
-  const uniqueTodayHabits = todayHabits.filter((h) => {
-    const templateId = toIdString((h as { template?: unknown }).template);
-    if (!templateId) return true;
-    const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
-    const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
-    const prayerKey = (isAdhkar || isSunnah)
-      ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
-      : (h.connectedPrayer?.toLowerCase() ?? '');
-    const dedupeKey = `${templateId}_${prayerKey}`;
-    if (seenTopLevelTemplates.has(dedupeKey)) return false;
-    seenTopLevelTemplates.add(dedupeKey);
-    return true;
-  });
+  const uniqueTodayHabits = sortHabitsByCanonicalPrayerOrder(
+    todayHabits.filter((h) => {
+      const templateId = toIdString((h as { template?: unknown }).template);
+      if (!templateId) return true;
+      const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
+      const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
+      const prayerKey = (isAdhkar || isSunnah)
+        ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
+        : (h.connectedPrayer?.toLowerCase() ?? '');
+      const dedupeKey = `${templateId}_${prayerKey}`;
+      if (seenTopLevelTemplates.has(dedupeKey)) return false;
+      seenTopLevelTemplates.add(dedupeKey);
+      return true;
+    }),
+  );
 
   // ── Log IDs collect ───────────────────────────────────────
 
@@ -751,19 +754,21 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
 
   // Pre-built templates only appear once at top level, unless they represent distinct prayer times (e.g. Adhkar after prayer or Sunnah prayer).
   const seenTopLevelTemplates = new Set<string>();
-  const uniqueDateHabits = dateHabits.filter((h) => {
-    const templateId = toIdString((h as { template?: unknown }).template);
-    if (!templateId) return true;
-    const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
-    const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
-    const prayerKey = (isAdhkar || isSunnah)
-      ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
-      : (h.connectedPrayer?.toLowerCase() ?? '');
-    const dedupeKey = `${templateId}_${prayerKey}`;
-    if (seenTopLevelTemplates.has(dedupeKey)) return false;
-    seenTopLevelTemplates.add(dedupeKey);
-    return true;
-  });
+  const uniqueDateHabits = sortHabitsByCanonicalPrayerOrder(
+    dateHabits.filter((h) => {
+      const templateId = toIdString((h as { template?: unknown }).template);
+      if (!templateId) return true;
+      const isAdhkar = isAdhkarAfterPrayer(h) || isAdhkarAfterPrayer(h.template);
+      const isSunnah = isSunnahPrayer(h) || isSunnahPrayer(h.template);
+      const prayerKey = (isAdhkar || isSunnah)
+        ? (h.connectedPrayer?.toLowerCase() || (h.name?.toLowerCase() ?? ''))
+        : (h.connectedPrayer?.toLowerCase() ?? '');
+      const dedupeKey = `${templateId}_${prayerKey}`;
+      if (seenTopLevelTemplates.has(dedupeKey)) return false;
+      seenTopLevelTemplates.add(dedupeKey);
+      return true;
+    }),
+  );
 
   // ── Log IDs collect ───────────────────────────────────────
   const allUserHabitIds = uniqueDateHabits.map((h) => h._id);
