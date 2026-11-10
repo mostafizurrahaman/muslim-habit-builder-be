@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
-import { deleteImageFromCloudinary } from '../../../../cloudinary/deleteImageFromCloudinary';
-import { uploadToCloudinary } from '../../../../cloudinary/uploadImageToCLoudinary';
+import { deleteFromS3 } from '../../../../aws/deleteFromS3';
+import { uploadToS3 } from '../../../../aws/uploadToS3';
 import { BadRequestError, NotFoundError } from '../../../errors/request/apiError';
 import { UserHabit } from '../../user-habit/user.habit.model';
 import { USER_ROLE } from '../../user/user.constant';
@@ -160,7 +160,7 @@ const createHabitTemplateIntoDB = async (
     let pdfUrl: string | null = null;
 
     if (pdfFile) {
-        const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
+        const uploaded = await uploadToS3(pdfFile, 'habit_pdfs');
         pdfUrl = uploaded.secure_url;
     }
 
@@ -191,7 +191,7 @@ const createHabitTemplateIntoDB = async (
     } catch (error) {
         // DB create fail hole cloudinary theke pdf delete kore dao (rollback)
         if (pdfUrl) {
-            await deleteImageFromCloudinary(pdfUrl); // resource_type: 'raw' pass korte hobe function er vitor
+            await deleteFromS3(pdfUrl);
         }
         throw error;
     }
@@ -360,7 +360,7 @@ const updateSystemHabit = async (
     let pdfUrl: string | null = null;
 
     if (pdfFile) {
-        const uploaded = await uploadToCloudinary(pdfFile, 'habit_pdfs');
+        const uploaded = await uploadToS3(pdfFile, 'habit_pdfs');
         pdfUrl = uploaded.secure_url;
     }
 
@@ -374,15 +374,15 @@ const updateSystemHabit = async (
         if (!updatedHabit) throw new NotFoundError(SYSTEM_HABIT_MESSAGES.NOT_FOUND);
 
         if (pdfUrl && habit.pdfContent) {
-            // Delete the old PDF from Cloudinary if a new one is uploaded
-            await deleteImageFromCloudinary(habit.pdfContent);
+            // Delete the old PDF from S3 if a new one is uploaded
+            await deleteFromS3(habit.pdfContent);
         }
 
         return null;
     } catch (error) {
-        // DB update fail hole notun upload kora pdf (jodi thake) cloudinary theke delete kore dao (rollback)
+        // DB update fail hole notun upload kora pdf (jodi thake) S3 theke delete kore dao (rollback)
         if (pdfUrl) {
-            await deleteImageFromCloudinary(pdfUrl);
+            await deleteFromS3(pdfUrl);
         }
         throw error;
     }
@@ -394,9 +394,9 @@ const removeHabitPdf = async (id: string) => {
 
     if (habit.pdfContent) {
         try {
-            await deleteImageFromCloudinary(habit.pdfContent);
+            await deleteFromS3(habit.pdfContent);
         } catch (error) {
-            console.error('[HabitTemplate] Failed to delete PDF from Cloudinary:', error);
+            console.error('[HabitTemplate] Failed to delete PDF from S3:', error);
         }
         habit.pdfContent = null;
         await habit.save();
@@ -412,7 +412,7 @@ const deleteSystemHabit = async (id: string) => {
 
     await HabitTemplate.findByIdAndDelete(id);
     if (habit.pdfContent) {
-        await deleteImageFromCloudinary(habit.pdfContent);
+        await deleteFromS3(habit.pdfContent);
     }
 };
 

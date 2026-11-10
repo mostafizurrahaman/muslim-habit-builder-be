@@ -1,59 +1,72 @@
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
-import cloudinary from "../config/cloudinary.config";
+import s3Client, { s3Config } from '../config/aws.config';
 
-export const uploadToCloudinary = (
+export type TUploadFolder =
+  | 'profile_images'
+  | 'habit_images'
+  | 'pdf_documents'
+  | 'habit_documents'
+  | 'quran_verse'
+  | 'bug_images'
+  | 'habit_pdfs';
+
+export const uploadToS3 = async (
   file: Express.Multer.File,
-  folderName: 'profile_images' | 'habit_images' | 'pdf_documents' | 'habit_documents' | 'quran_verse' | 'bug_images' | 'habit_pdfs',
+  folderName: TUploadFolder,
 ): Promise<{ secure_url: string; public_id: string }> => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const isPdf = file.mimetype === 'application/pdf';
-      let uploadBuffer: Buffer = file.buffer;
+  try {
+    const isPdf = file.mimetype === 'application/pdf';
+    let uploadBuffer: Buffer = file.buffer;
+    let contentType = file.mimetype || 'application/octet-stream';
 
+    const baseName =
+      (file.originalname || 'file')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .slice(0, 80) || 'file';
 
-      const uploadOptions: any = {
-        folder: folderName,
-        resource_type: isPdf ? 'raw' : 'image',
-      };
+    let fileName: string;
 
-      // Raw PDFs need the .pdf extension in public_id so Cloudinary serves
-      // application/pdf. Viewers (and the app WebView) reject extensionless URLs.
-      if (isPdf) {
-        const baseName = (file.originalname || 'document')
-          .replace(/\.[^/.]+$/, '')
-          .replace(/[^a-zA-Z0-9_-]/g, '_')
-          .slice(0, 80) || 'document';
-        uploadOptions.public_id = `${baseName}_${Date.now()}.pdf`;
-      }
+    if (!isPdf && file.mimetype.startsWith('image/')) {
+      uploadBuffer = await sharp(file.buffer)
+        .resize({ width: 800, withoutEnlargement: true })
+        .webp({ quality: 75 })
+        .toBuffer();
 
-
-      if (!isPdf && file.mimetype.startsWith('image/')) {
-        uploadBuffer = await sharp(file.buffer)
-          .resize({ width: 800, withoutEnlargement: true })
-          .webp({ quality: 75 })
-          .toBuffer();
-
-        uploadOptions.format = 'webp';
-      }
-
-      const stream = cloudinary.uploader.upload_stream(
-        uploadOptions,
-        (error, result) => {
-          if (error || !result) {
-            return reject(
-              new Error(`Cloudinary upload failed: ${error?.message}`)
-            );
-          }
-          resolve({
-            secure_url: result.secure_url,
-            public_id: result.public_id,
-          });
-        },
-      );
-
-      stream.end(uploadBuffer);
-    } catch (error) {
-      reject(new Error(`File processing failed: ${error}`));
+      contentType = 'image/webp';
+      fileName = `${baseName}_${Date.now()}.webp`;
+    } else if (isPdf) {
+      contentType = 'application/pdf';
+      fileName = `${baseName}_${Date.now()}.pdf`;
+    } else {
+      const ext = file.originalname?.match(/\.[^/.]+$/)?.[0] || '';
+      fileName = `${baseName}_${Date.now()}${ext}`;
     }
-  });
+
+    const key = `${folderName}/${fileName}`;
+    const bucketName = process.env.AWS_S3_BUCKET_NAME || s3Config.bucketName;
+    const region = process.env.AWS_REGION || s3Config.region;
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        Body: uploadBuffer,
+        ContentType: contentType,
+        ...(isPdf ? { ContentDisposition: 'inline' } : {}),
+      }),
+    );
+
+    const secure_url = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+
+    return {
+      secure_url,
+      public_id: key,
+    };
+  } catch (error: any) {
+    throw new Error(`AWS S3 upload failed: ${error?.message || error}`);
+  }
 };
+
+export const uploadToCloudinary = uploadToS3;

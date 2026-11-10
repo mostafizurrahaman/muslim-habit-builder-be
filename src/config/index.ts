@@ -40,6 +40,10 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string({
     error: 'Firebase project id required.',
   }),
+  AWS_REGION: z.string().min(1, 'AWS region is required'),
+  AWS_ACCESS_KEY_ID: z.string().min(1, 'AWS access key ID is required'),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1, 'AWS secret access key is required'),
+  AWS_S3_BUCKET_NAME: z.string().min(1, 'AWS S3 bucket name is required'),
 });
 
 const envVars = envSchema.parse(process.env);
@@ -77,4 +81,9 @@ export default {
   FIREBASE_PRIVATE_KEY: envVars.FIREBASE_PRIVATE_KEY,
   FIREBASE_CLIENT_EMAIL: envVars.FIREBASE_CLIENT_EMAIL,
   FIREBASE_PROJECT_ID: envVars.FIREBASE_PROJECT_ID,
+
+  aws_region: envVars.AWS_REGION,
+  aws_access_key_id: envVars.AWS_ACCESS_KEY_ID,
+  aws_secret_access_key: envVars.AWS_SECRET_ACCESS_KEY,
+  aws_s3_bucket_name: envVars.AWS_S3_BUCKET_NAME,
 };

@@ -1,6 +1,6 @@
 import QueryBuilder from "../../../builder/QueryBuilder";
-import { deleteImageFromCloudinary } from "../../../cloudinary/deleteImageFromCloudinary";
-import { uploadToCloudinary } from "../../../cloudinary/uploadImageToCLoudinary";
+import { deleteFromS3 } from "../../../aws/deleteFromS3";
+import { uploadToS3 } from "../../../aws/uploadToS3";
 import { BadRequestError } from "../../errors/request/apiError";
 import { IUser } from "../user/user.interface";
 import { TBug, TBugStatus } from "./bug.constant";
@@ -65,17 +65,17 @@ const createFreshBug = async (user: IUser, payload: TBugReportPayload, files?: T
     try {
         if (files?.bug_images?.length) {
             const uploads = await Promise.all(
-                files.bug_images.map((file) => uploadToCloudinary(file, 'bug_images'))
+                files.bug_images.map((file) => uploadToS3(file, 'bug_images'))
             )
             uploadedBugImages = uploads.map((img) => img.secure_url);
         }
     } catch (error) {
         if (uploadedBugImages.length > 0) {
             await Promise.all(
-                uploadedBugImages.map((img) => deleteImageFromCloudinary(img))
+                uploadedBugImages.map((img) => deleteFromS3(img))
             );
         }
-        throw new Error(`Cloudinary upload crashed! Rollback completed. Error: ${error}`);
+        throw new Error(`AWS S3 upload crashed! Rollback completed. Error: ${error}`);
     }
 
     const newBug = await Bug.create({
@@ -90,7 +90,7 @@ const createFreshBug = async (user: IUser, payload: TBugReportPayload, files?: T
 
         if (uploadedBugImages.length > 0) {
             await Promise.all(
-                uploadedBugImages.map((img) => deleteImageFromCloudinary(img))
+                uploadedBugImages.map((img) => deleteFromS3(img))
             );
         }
         throw new BadRequestError("Failed to create bug report");
@@ -131,7 +131,7 @@ const deleteBug = async (bugId: string) => {
 
     if (bug.bugImages && bug.bugImages.length > 0) {
         await Promise.all(
-            bug.bugImages.map((img) => deleteImageFromCloudinary(img))
+            bug.bugImages.map((img) => deleteFromS3(img))
         );
     }
     const deletedBug = await Bug.deleteOne({ _id: bugId });

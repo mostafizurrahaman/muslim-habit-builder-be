@@ -1,5 +1,5 @@
-import { deleteImageFromCloudinary } from '../../../cloudinary/deleteImageFromCloudinary';
-import { uploadToCloudinary } from '../../../cloudinary/uploadImageToCLoudinary';
+import { deleteFromS3 } from '../../../aws/deleteFromS3';
+import { uploadToS3 } from '../../../aws/uploadToS3';
 import jwtHelpers from '../../../helpers/jwtHelpers';
 import { randomUserImage } from '../../../utilities/randomUserImage';
 import { BadRequestError } from '../../errors/request/apiError';
@@ -157,10 +157,10 @@ const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
   let newProfileImageUrl: string;
 
   try {
-    const result = await uploadToCloudinary(files.profile_image[0], 'profile_images');
+    const result = await uploadToS3(files.profile_image[0], 'profile_images');
 
     if (!result?.secure_url) {
-      throw new BadRequestError('Cloudinary upload failed');
+      throw new BadRequestError('AWS S3 upload failed');
     }
 
     newProfileImageUrl = result.secure_url;
@@ -173,13 +173,13 @@ const updateUserProfileImage = async (user: IUser, files: TProfileImage) => {
     await user.save();
   } catch (error) {
     // Rollback: delete the newly uploaded image
-    await deleteImageFromCloudinary(newProfileImageUrl);
+    await deleteFromS3(newProfileImageUrl);
     throw error;
   }
 
   // Now safely delete the OLD image
   if (oldAvatarUrl) {
-    await deleteImageFromCloudinary(oldAvatarUrl);
+    await deleteFromS3(oldAvatarUrl);
   }
 
   return { avatar: newProfileImageUrl };

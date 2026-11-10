@@ -1,8 +1,8 @@
 
 
 import mongoose from "mongoose";
-import { deleteImageFromCloudinary } from "../../../../cloudinary/deleteImageFromCloudinary";
-import { uploadToCloudinary } from "../../../../cloudinary/uploadImageToCLoudinary";
+import { deleteFromS3 } from "../../../../aws/deleteFromS3";
+import { uploadToS3 } from "../../../../aws/uploadToS3";
 import { NotFoundError } from "../../../errors/request/apiError";
 import { HabitTemplate } from "../habit-template/system.habit.model";
 import { TQuranContentImages } from "./quran.content.interface";
@@ -22,7 +22,7 @@ const createQuranContent = async (
 
         if (files?.pages?.length) {
             const uploads = await Promise.all(
-                files.pages.map((file) => uploadToCloudinary(file, 'quran_verse'))
+                files.pages.map((file) => uploadToS3(file, 'quran_verse'))
             )
             uploadedVerseImages = uploads.map((img) => img.secure_url);
         }
@@ -45,7 +45,7 @@ const createQuranContent = async (
         // 8. Rollback DB
         if (uploadedVerseImages.length) {
             await Promise.all(
-                uploadedVerseImages.map((url) => deleteImageFromCloudinary(url))
+                uploadedVerseImages.map((url) => deleteFromS3(url))
             );
         }
         throw error;
@@ -83,9 +83,9 @@ const deleteQuranContent = async (id: string) => {
 
         const deletedImages = quran.images.map(img => img.imageUrl) || [];
 
-        // Delete images from Cloudinary
+        // Delete images from S3
         await Promise.all(
-            deletedImages.map((url) => deleteImageFromCloudinary(url))
+            deletedImages.map((url) => deleteFromS3(url))
         );
 
         await HabitTemplate.findOneAndUpdate({ quranContent: id }, { $unset: { quranContent: null }, new: true }).session(session);
@@ -163,7 +163,7 @@ const addVerse = async (
 
         if (files?.pages?.length) {
             const uploads = await Promise.all(
-                files.pages.map((file) => uploadToCloudinary(file, 'quran_verse'))
+                files.pages.map((file) => uploadToS3(file, 'quran_verse'))
             )
             uploadedVerseImages = uploads.map((img) => img.secure_url);
         }
@@ -184,7 +184,7 @@ const addVerse = async (
         // 8. Rollback DB
         if (uploadedVerseImages.length) {
             await Promise.all(
-                uploadedVerseImages.map((url) => deleteImageFromCloudinary(url))
+                uploadedVerseImages.map((url) => deleteFromS3(url))
             );
         }
         throw error;
@@ -270,6 +270,7 @@ const deleteVerseImage = async (id: string, imageUrlToDelete: string) => {
 
     // 5. Save the document safely
     await existingContent.save();
+    await deleteFromS3(imageUrlToDelete);
 
     return existingContent;
 };
@@ -304,12 +305,12 @@ const replaceVerseImage = async (
         }
 
         const uploads = await Promise.all(
-            files.pages.map((file) => uploadToCloudinary(file, 'quran_verse'))
+            files.pages.map((file) => uploadToS3(file, 'quran_verse'))
         );
         newUploadedUrls = uploads.map((img) => img.secure_url);
 
 
-        await deleteImageFromCloudinary(oldImageUrl);
+        await deleteFromS3(oldImageUrl);
 
 
         existingContent.images[targetIndex].imageUrl = newUploadedUrls[0];
@@ -322,7 +323,7 @@ const replaceVerseImage = async (
 
         if (newUploadedUrls.length > 0) {
             await Promise.all(
-                newUploadedUrls.map((url) => deleteImageFromCloudinary(url))
+                newUploadedUrls.map((url) => deleteFromS3(url))
             );
         }
 
