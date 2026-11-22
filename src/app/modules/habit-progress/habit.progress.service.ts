@@ -9,6 +9,43 @@ import { NotFoundError } from "../../errors/request/apiError";
 
 
 
+const isHabitScheduledOnDate = (habit: any, targetDateStr: string): boolean => {
+    const frequency = habit?.frequency;
+    if (!frequency || !frequency.type) return true;
+
+    switch (frequency.type) {
+        case 'Daily':
+            return true;
+        case 'Weekly': {
+            if (!frequency.selectedDays?.length) return false;
+            const dayName = moment(targetDateStr, 'YYYY-MM-DD').format('ddd').toLowerCase();
+            return frequency.selectedDays.map((d: string) => d.toLowerCase()).includes(dayName);
+        }
+        case 'Every_N_Days': {
+            if (!frequency.everyNDays) return false;
+            const start = moment(habit.startDate).startOf('day');
+            const target = moment(targetDateStr, 'YYYY-MM-DD').startOf('day');
+            const diffDays = target.diff(start, 'days');
+            return diffDays >= 0 && diffDays % frequency.everyNDays === 0;
+        }
+        default:
+            return true;
+    }
+};
+
+const dedupeActiveHabits = (habits: any[]): any[] => {
+    const seenTemplateKeys = new Set<string>();
+    return habits.filter((h) => {
+        const templateId = h.template?._id?.toString() ?? h.template?.toString();
+        if (!templateId) return true;
+        const prayerKey = (h.connectedPrayer ?? '').trim().toLowerCase();
+        const key = `${templateId}_${prayerKey}`;
+        if (seenTemplateKeys.has(key)) return false;
+        seenTemplateKeys.add(key);
+        return true;
+    });
+};
+
 // get Combined Progress and Analytics (For Future Use - Master Endpoint For All Data In One Go)
 
 const getCombinedProgressAndAnalytics = async (
@@ -18,11 +55,12 @@ const getCombinedProgressAndAnalytics = async (
     try {
         const userId = user._id;
         const { category = 'all', analyticsView = 'week' } = query;
+        const userTimezone = (user.timezone as string) || 'UTC';
 
         // User Registration Date Tracking (Format: 'YYYY-MM-DD')
-        const userRegisterDateStr = moment(user.createdAt).format('YYYY-MM-DD');
+        const userRegisterDateStr = moment.tz(user.createdAt, userTimezone).format('YYYY-MM-DD');
 
-        const currentDeviceTodayStr = buildDateBasedOnTimeZone(user.timezone as string);
+        const currentDeviceTodayStr = buildDateBasedOnTimeZone(userTimezone);
         const currentDeviceMoment = moment(currentDeviceTodayStr, 'YYYY-MM-DD');
 
         const anchorDate = query.date && moment(query.date, 'YYYY-MM-DD').isValid() ? moment(query.date, 'YYYY-MM-DD') : null;
@@ -35,11 +73,11 @@ const getCombinedProgressAndAnalytics = async (
         const referenceMoment = moment(todayStr, 'YYYY-MM-DD');
 
         const normalizeCategory = (catStr: string) => {
-            const lower = catStr.toLowerCase().trim();
+            const lower = (catStr || '').toLowerCase().trim();
             if (lower === 'prayer') return 'Prayer';
             if (lower === 'quran' || lower === "qur'an") return 'Quran';
             if (lower === 'dhikr' || lower === 'adhkar') return 'Dhikr';
-            if (lower === 'deeds' || lower === 'deeds') return 'Deeds';
+            if (lower === 'deeds') return 'Deeds';
             return catStr;
         };
 
@@ -54,14 +92,16 @@ const getCombinedProgressAndAnalytics = async (
                 isActive: true,
                 category: { $regex: `^${targetCategoryNormalized}$`, $options: 'i' }
             })
-            .select('_id name template')
+            .select('_id name template connectedPrayer')
             .populate('template', 'name')
             .lean();
+
+            const uniqueCategoryHabits = dedupeActiveHabits(targetedCategoryHabits);
 
             return {
                 viewMode: 'CATEGORY_HABITS',
                 categoryName: targetCategoryNormalized,
-                habits: targetedCategoryHabits.map((h: any) => ({
+                habits: uniqueCategoryHabits.map((h: any) => ({
                     _id: h._id,
                     name: h.name ?? h.template?.name ?? null,
                 })),
@@ -71,11 +111,14 @@ const getCombinedProgressAndAnalytics = async (
         // ─────────────────────────────────────────────────────────
         // SCENARIO A: 'ALL' TAB SELECTED
         // ─────────────────────────────────────────────────────────
-        const activeHabits = await UserHabit.find({ user: userId, isActive: true }).lean();
-        const totalUserActiveHabitsCount = activeHabits.length;
+        const rawActiveHabits = await UserHabit.find({ user: userId, isActive: true }).lean();
+        const activeHabits = dedupeActiveHabits(rawActiveHabits);
+        const todayScheduledHabits = activeHabits.filter((h) => isHabitScheduledOnDate(h, todayStr));
+        const totalUserActiveHabitsCount = todayScheduledHabits.length || activeHabits.length;
 
         // MODULE A: TODAY'S PROGRESS OVERVIEW
         const todayLogs = await HabitLog.find({ user: userId, date: todayStr }).lean();
+        const todayLogMap = new Map<string, string>(todayLogs.map((l: any) => [l.userHabit.toString(), l.status]));
 
         let categoryStats = {
             Prayer: { total: 0, completed: 0 },
@@ -87,10 +130,17 @@ const getCombinedProgressAndAnalytics = async (
         let todayOverallCompleted = 0;
         let todayOverallMissed = 0;
 
-        activeHabits.forEach((h: any) => {
+        todayScheduledHabits.forEach((h: any) => {
             const cat = normalizeCategory(h.category);
-            const logFound = todayLogs.find((l: any) => l.userHabit.toString() === h._id.toString());
-            const currentStatus = logFound ? logFound.status : 'Pending';
+            let currentStatus = todayLogMap.get(h._id.toString()) ?? 'Pending';
+
+            // If parent habit has connectedHabits and all connectedHabits are Completed today, treat parent as Completed
+            if (currentStatus !== 'Completed' && Array.isArray(h.connectedHabits) && h.connectedHabits.length > 0) {
+                const childIds = h.connectedHabits.map((c: any) => c.userHabit?.toString()).filter(Boolean);
+                if (childIds.length > 0 && childIds.every((id: string) => todayLogMap.get(id) === 'Completed')) {
+                    currentStatus = 'Completed';
+                }
+            }
 
             if (categoryStats[cat as keyof typeof categoryStats]) {
                 categoryStats[cat as keyof typeof categoryStats].total += 1;
@@ -106,7 +156,7 @@ const getCombinedProgressAndAnalytics = async (
         const getRatio = (completed: number, total: number) => total > 0 ? Math.round((completed / total) * 100) : 0;
 
         const overviewCard = {
-            overallPercentage: getRatio(todayOverallCompleted, totalUserActiveHabitsCount), 
+            overallPercentage: getRatio(todayOverallCompleted, todayScheduledHabits.length), 
             counters: {
                 completed: todayOverallCompleted, 
                 missed: todayOverallMissed        
@@ -125,10 +175,14 @@ const getCombinedProgressAndAnalytics = async (
             date: { $regex: `^${targetMonthPrefix}` }
         }).lean();
 
-        const dayGrouping = monthlyLogs.reduce((acc: any, log: any) => {
+        const activeHabitIdSet = new Set(activeHabits.map((h: any) => h._id.toString()));
+        const dayGrouping = monthlyLogs.reduce((acc: Record<string, Set<string>>, log: any) => {
             const dateKey = log.date;
-            if (!acc[dateKey]) acc[dateKey] = 0;
-            if (log.status === 'Completed') acc[dateKey] += 1;
+            const habitIdStr = log.userHabit?.toString();
+            if (!acc[dateKey]) acc[dateKey] = new Set();
+            if (log.status === 'Completed' && habitIdStr && activeHabitIdSet.has(habitIdStr)) {
+                acc[dateKey].add(habitIdStr);
+            }
             return acc;
         }, {});
 
@@ -137,9 +191,10 @@ const getCombinedProgressAndAnalytics = async (
 
         for (let d = 1; d <= daysInMonth; d++) {
             const currentFormattedDate = `${targetMonthPrefix}-${String(d).padStart(2, '0')}`;
-            const completedCount = dayGrouping[currentFormattedDate] ?? 0;
+            const scheduledCountForDay = activeHabits.filter((h) => isHabitScheduledOnDate(h, currentFormattedDate)).length || totalUserActiveHabitsCount;
+            const completedCount = dayGrouping[currentFormattedDate]?.size ?? 0;
 
-            const ratio = totalUserActiveHabitsCount > 0 ? Math.round((completedCount / totalUserActiveHabitsCount) * 100) : 0;
+            const ratio = scheduledCountForDay > 0 ? Math.min(100, Math.round((completedCount / scheduledCountForDay) * 100)) : 0;
             let statusLabel = 'Missed';
 
             // PROTECTION BLOCK: Future Date OR Registration er purborborti date hole straight Blank string!
@@ -168,13 +223,32 @@ const getCombinedProgressAndAnalytics = async (
 
         // Sub-Case 1: Week Data Block
         if (analyticsView === 'week') {
+            const currentYearMonth = referenceMoment.format('YYYY-MM');
             const anchorMoment = anchorDate
-                ?? (query.year && query.month
+                ?? (query.year && query.month && `${year}-${month}` !== currentYearMonth
                     ? moment(`${year}-${month}-01`, 'YYYY-MM-DD')
                     : referenceMoment);
 
             const startOfWeek = anchorMoment.clone().startOf('week'); 
             const endOfWeek = startOfWeek.clone().add(6, 'days');
+            const startOfWeekStr = startOfWeek.format('YYYY-MM-DD');
+            const endOfWeekStr = endOfWeek.format('YYYY-MM-DD');
+
+            const weekLogs = await HabitLog.find({
+                user: userId,
+                date: { $gte: startOfWeekStr, $lte: endOfWeekStr },
+                status: 'Completed',
+            }).lean();
+
+            const weekDayCompletedMap = weekLogs.reduce((acc: Record<string, Set<string>>, log: any) => {
+                const habitIdStr = log.userHabit?.toString();
+                if (!acc[log.date]) acc[log.date] = new Set();
+                if (habitIdStr && activeHabitIdSet.has(habitIdStr)) {
+                    acc[log.date].add(habitIdStr);
+                }
+                return acc;
+            }, {});
+
             const weeklyMetrics = [];
             let maxCompleted = 0, bestDay = 'N/A';
 
@@ -195,8 +269,9 @@ const getCombinedProgressAndAnalytics = async (
                     continue;
                 }
 
-                const completedCount = await HabitLog.countDocuments({ user: userId, date: dayStr, status: 'Completed' });
-                const ratio = totalUserActiveHabitsCount > 0 ? Math.round((completedCount / totalUserActiveHabitsCount) * 100) : 0;
+                const scheduledCountForDay = activeHabits.filter((h) => isHabitScheduledOnDate(h, dayStr)).length || totalUserActiveHabitsCount;
+                const completedCount = weekDayCompletedMap[dayStr]?.size ?? 0;
+                const ratio = scheduledCountForDay > 0 ? Math.min(100, Math.round((completedCount / scheduledCountForDay) * 100)) : 0;
 
                 if (completedCount > maxCompleted) {
                     maxCompleted = completedCount;
@@ -214,8 +289,8 @@ const getCombinedProgressAndAnalytics = async (
             analyticsGraphData = {
                 viewType: 'week',
                 range: {
-                    startDate: startOfWeek.format('YYYY-MM-DD'),
-                    endDate: endOfWeek.format('YYYY-MM-DD'),
+                    startDate: startOfWeekStr,
+                    endDate: endOfWeekStr,
                     displayLabel: `${startOfWeek.format('D MMM')} - ${endOfWeek.format('D MMM YYYY')}`,
                 },
                 bestDisplayLabel: `Best Day: ${bestDay}`,
@@ -251,7 +326,14 @@ const getCombinedProgressAndAnalytics = async (
                 const totalDaysCompletedInMonth = new Set(monthlyCompletedLogs.map((l: any) => l.date)).size;
 
                 const totalDaysInMonth = new Date(parseInt(currentYearStr, 10), m, 0).getDate();
-                const mRatio = totalDaysInMonth > 0 ? Math.round((totalDaysCompletedInMonth / totalDaysInMonth) * 100) : 0;
+                const lastDayOfMonthStr = `${prefix}-${String(totalDaysInMonth).padStart(2, '0')}`;
+                const effectiveMonthStart = firstDayOfMonthStr < userRegisterDateStr ? userRegisterDateStr : firstDayOfMonthStr;
+                const effectiveMonthEnd = lastDayOfMonthStr > todayStr ? todayStr : lastDayOfMonthStr;
+                const eligibleDaysInMonth = Math.max(
+                    1,
+                    moment(effectiveMonthEnd, 'YYYY-MM-DD').diff(moment(effectiveMonthStart, 'YYYY-MM-DD'), 'days') + 1,
+                );
+                const mRatio = Math.min(100, Math.round((totalDaysCompletedInMonth / eligibleDaysInMonth) * 100));
 
                 if (totalDaysCompletedInMonth > maxMonthlyDays) {
                     maxMonthlyDays = totalDaysCompletedInMonth;
@@ -302,8 +384,15 @@ const getCombinedProgressAndAnalytics = async (
                 const yearlyCompletedLogs = await HabitLog.find({ user: userId, date: { $regex: `^${queryYear}` }, status: 'Completed' }).lean();
                 const uniqueCompletedDays = new Set(yearlyCompletedLogs.map((l: any) => l.date)).size;
 
-                const totalDaysInYear = (queryYear % 4 === 0 && queryYear % 100 !== 0) || (queryYear % 400 === 0) ? 366 : 365;
-                const yRatio = Math.round((uniqueCompletedDays / totalDaysInYear) * 100);
+                const firstDayOfYearStr = `${queryYear}-01-01`;
+                const lastDayOfYearStr = `${queryYear}-12-31`;
+                const effectiveYearStart = firstDayOfYearStr < userRegisterDateStr ? userRegisterDateStr : firstDayOfYearStr;
+                const effectiveYearEnd = lastDayOfYearStr > todayStr ? todayStr : lastDayOfYearStr;
+                const eligibleDaysInYear = Math.max(
+                    1,
+                    moment(effectiveYearEnd, 'YYYY-MM-DD').diff(moment(effectiveYearStart, 'YYYY-MM-DD'), 'days') + 1,
+                );
+                const yRatio = Math.min(100, Math.round((uniqueCompletedDays / eligibleDaysInYear) * 100));
 
                 if (uniqueCompletedDays > maxYearlyDays) {
                     maxYearlyDays = uniqueCompletedDays;
@@ -391,6 +480,10 @@ const getIndividualHabitAnalytics = async (
                 ? userRegisterDateStr
                 : habitStartDateStr;
 
+        const childHabitIds: Types.ObjectId[] = Array.isArray(trackingHabit.connectedHabits)
+            ? trackingHabit.connectedHabits.map((c: any) => c.userHabit).filter(Boolean)
+            : [];
+
         // ─────────────────────────────────────────────────────────
         // 📊 MODULE 2: SPECIFIC SINGLE HABIT MONTHLY CALENDAR GRID
         // ─────────────────────────────────────────────────────────
@@ -402,12 +495,32 @@ const getIndividualHabitAnalytics = async (
 
         const logStatusLookupMap = new Map<string, any>(monthlyHabitLogs.map((l: any) => [l.date, l.status]));
 
+        if (childHabitIds.length > 0) {
+            const monthlyChildLogs = await HabitLog.find({
+                user: userId,
+                userHabit: { $in: childHabitIds },
+                date: { $regex: `^${targetMonthPrefix}` },
+                status: 'Completed',
+            }).lean();
+            const childCompletedByDate = monthlyChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
+                if (!acc[l.date]) acc[l.date] = new Set();
+                acc[l.date].add(l.userHabit.toString());
+                return acc;
+            }, {});
+            for (const [dStr, completedSet] of Object.entries(childCompletedByDate)) {
+                if (completedSet.size >= childHabitIds.length) {
+                    logStatusLookupMap.set(dStr, 'Completed');
+                }
+            }
+        }
+
         const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate(); 
         const calendarHistoryGrid = [];
 
         for (let d = 1; d <= daysInMonth; d++) {
             const currentFormattedDate = `${targetMonthPrefix}-${String(d).padStart(2, '0')}`;
             const dbLoggedStatus = logStatusLookupMap.get(currentFormattedDate);
+            const isScheduled = isHabitScheduledOnDate(trackingHabit, currentFormattedDate);
 
             let calculatedStatus = 'Missed';
 
@@ -417,12 +530,12 @@ const getIndividualHabitAnalytics = async (
                 calculatedStatus = 'Completed';
             } else if (dbLoggedStatus === 'Missed' || dbLoggedStatus === 'Skipped') {
                 calculatedStatus = 'Missed';
-            } else if (currentFormattedDate < effectiveStartDateStr) {
+            } else if (currentFormattedDate < effectiveStartDateStr || !isScheduled) {
                 calculatedStatus = '';
             } else if (currentFormattedDate === todayStr) {
                 calculatedStatus = ''; // Today, still Pending
             } else {
-                calculatedStatus = 'Missed'; // Past active date with no completion = Missed
+                calculatedStatus = 'Missed'; // Past active scheduled date with no completion = Missed
             }
 
             calendarHistoryGrid.push({
@@ -461,6 +574,28 @@ const getIndividualHabitAnalytics = async (
         // Populate database execution log metrics map
         const logsDateIndexedMap = new Map<string, any>(absoluteActiveLifetimeLogs.map((l: any) => [l.date, l.status]));
 
+        if (childHabitIds.length > 0) {
+            const lifetimeChildLogs = await HabitLog.find({
+                user: userId,
+                userHabit: { $in: childHabitIds },
+                date: {
+                    $gte: trackingHabit.progressRestartedAt ? effectiveStartDateStr : userRegisterDateStr,
+                    $lte: todayStr,
+                },
+                status: 'Completed',
+            }).lean();
+            const childCompletedByDate = lifetimeChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
+                if (!acc[l.date]) acc[l.date] = new Set();
+                acc[l.date].add(l.userHabit.toString());
+                return acc;
+            }, {});
+            for (const [dStr, completedSet] of Object.entries(childCompletedByDate)) {
+                if (completedSet.size >= childHabitIds.length) {
+                    logsDateIndexedMap.set(dStr, 'Completed');
+                }
+            }
+        }
+
         // Count any completed logs prior to the latest startDate (when not restarted)
         for (const [logDate, logStatus] of logsDateIndexedMap.entries()) {
             if (logDate < effectiveStartDateStr && logStatus === 'Completed') {
@@ -480,6 +615,7 @@ const getIndividualHabitAnalytics = async (
             const loopDateKeyStr = analysisDayIterator.format('YYYY-MM-DD');
             const dayNameStr = analysisDayIterator.format('dddd'); 
             const recordedStatus = logsDateIndexedMap.get(loopDateKeyStr);
+            const isScheduled = isHabitScheduledOnDate(trackingHabit, loopDateKeyStr);
 
             if (recordedStatus === 'Completed') {
                 totalCompletedCount++;
@@ -487,7 +623,7 @@ const getIndividualHabitAnalytics = async (
                     weekdayFrequencyWeightMap[dayNameStr].completed += 1;
                     weekdayFrequencyWeightMap[dayNameStr].total += 1;
                 }
-            } else if (loopDateKeyStr < todayStr || recordedStatus === 'Skipped' || recordedStatus === 'Missed') {
+            } else if (isScheduled && (loopDateKeyStr < todayStr || recordedStatus === 'Skipped' || recordedStatus === 'Missed')) {
                 totalMissedCount++;
                 if (weekdayFrequencyWeightMap[dayNameStr]) {
                     weekdayFrequencyWeightMap[dayNameStr].total += 1;
@@ -579,8 +715,7 @@ const getIndividualHabitAnalytics = async (
 
 const restartProgress = async (user: IUser, habitId: string) => {
   try {
-
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = buildDateBasedOnTimeZone((user.timezone as string) || 'UTC');
    
     const habitLog = await HabitLog.findOne({
       user: user._id, 
