@@ -51,15 +51,20 @@ const getCombinedProgressAndAnalytics = async (
         if (targetCategoryNormalized !== 'all' && targetCategoryNormalized !== '') {
             const targetedCategoryHabits = await UserHabit.find({
                 user: userId,
+                isActive: true,
                 category: { $regex: `^${targetCategoryNormalized}$`, $options: 'i' }
             })
-            .select('_id name')
+            .select('_id name template')
+            .populate('template', 'name')
             .lean();
 
             return {
-                viewMode: 'CATEGORY_HABITS', //
+                viewMode: 'CATEGORY_HABITS',
                 categoryName: targetCategoryNormalized,
-                habits: targetedCategoryHabits //
+                habits: targetedCategoryHabits.map((h: any) => ({
+                    _id: h._id,
+                    name: h.name ?? h.template?.name ?? null,
+                })),
             };
         }
 
@@ -347,56 +352,44 @@ const getIndividualHabitAnalytics = async (
     try {
         const userId = user._id;
 
+        const userTimezone = (user.timezone as string) || 'UTC';
+
         // 🚀 User account creation timeline reference
-        const userRegisterDateStr = moment(user.createdAt).format('YYYY-MM-DD');
+        const userRegisterDateStr = moment.tz(user.createdAt, userTimezone).format('YYYY-MM-DD');
 
         // Current real-time layout snapshot reference benchmarks
-        const currentDeviceTodayStr = buildDateBasedOnTimeZone(user.timezone as string);
+        const currentDeviceTodayStr = buildDateBasedOnTimeZone(userTimezone);
         const currentDeviceMoment = moment(currentDeviceTodayStr, 'YYYY-MM-DD');
 
-        const year = query.year ? query.year : '2026';
+        const year = query.year ? query.year : currentDeviceMoment.format('YYYY');
         const month = query.month ? String(query.month).padStart(2, '0') : currentDeviceMoment.format('MM');
 
         const targetMonthPrefix = `${year}-${month}`;
         const todayStr = currentDeviceTodayStr;
 
         // Verify habit resource configuration constraints existence first
-        const trackingHabit = await UserHabit.findOne({ _id: habitId, user: userId }).lean();
+        const trackingHabit = await UserHabit.findOne({ _id: habitId, user: userId })
+            .populate('template', 'name')
+            .lean();
         if (!trackingHabit) {
             throw new Error('Requested user tracking habit structure target reference not found.');
         }
 
-        // ─────────────────────────────────────────────────────────
-        // 📊 MODULE 1: COMPLETION THIS CURRENT RUNNING WEEK (Top Bar Metric)
-        // ─────────────────────────────────────────────────────────
-        const startOfCurrentWeekStr = currentDeviceMoment.clone().startOf('week').format('YYYY-MM-DD');
-        const endOfCurrentWeekStr = currentDeviceMoment.clone().endOf('week').format('YYYY-MM-DD');
+        const resolvedHabitName = trackingHabit.name ?? (trackingHabit.template as any)?.name ?? null;
 
-        // Limit range calculations query parameters bounded safely within registration snapshot timeline rules
-        const effectiveWeekStartStr = startOfCurrentWeekStr < userRegisterDateStr ? userRegisterDateStr : startOfCurrentWeekStr;
-
-        let totalEligibleWeekDays = 0;
-        let runningWeekIter = moment(effectiveWeekStartStr, 'YYYY-MM-DD');
-        const currentWeekEndMoment = moment(endOfCurrentWeekStr, 'YYYY-MM-DD');
-
-        while (runningWeekIter.isSameOrBefore(currentWeekEndMoment)) {
-            const dateStr = runningWeekIter.format('YYYY-MM-DD');
-            if (dateStr <= todayStr) {
-                totalEligibleWeekDays++;
-            }
-            runningWeekIter.add(1, 'day');
-        }
-
-        const currentWeekCompletedLogsCount = await HabitLog.countDocuments({
-            user: userId,
-            userHabit: habitId,
-            date: { $gte: effectiveWeekStartStr, $lte: todayStr },
-            status: 'Completed'
-        });
-
-        const currentWeekCompletionRatio = totalEligibleWeekDays > 0 
-            ? Math.round((currentWeekCompletedLogsCount / totalEligibleWeekDays) * 100) 
-            : 0;
+        // Determine effective tracking start date from progressRestartedAt -> startDate -> createdAt -> userRegisterDateStr
+        const rawHabitStart =
+            trackingHabit.progressRestartedAt ??
+            trackingHabit.startDate ??
+            (trackingHabit as any).createdAt ??
+            user.createdAt;
+        const habitStartDateStr = moment.tz(rawHabitStart, userTimezone).format('YYYY-MM-DD');
+        const effectiveStartDateStr =
+            habitStartDateStr > todayStr
+                ? todayStr
+                : habitStartDateStr < userRegisterDateStr
+                ? userRegisterDateStr
+                : habitStartDateStr;
 
         // ─────────────────────────────────────────────────────────
         // 📊 MODULE 2: SPECIFIC SINGLE HABIT MONTHLY CALENDAR GRID
@@ -416,18 +409,21 @@ const getIndividualHabitAnalytics = async (
             const currentFormattedDate = `${targetMonthPrefix}-${String(d).padStart(2, '0')}`;
             const dbLoggedStatus = logStatusLookupMap.get(currentFormattedDate);
 
-           let calculatedStatus = 'Missed';
+            let calculatedStatus = 'Missed';
 
-              if (currentFormattedDate > todayStr || currentFormattedDate < userRegisterDateStr) {
+            if (currentFormattedDate > todayStr) {
                 calculatedStatus = '';
-             } else if (dbLoggedStatus === 'Completed' || dbLoggedStatus === 'Missed') {
-    // Both today and past: only accept valid statuses
-               calculatedStatus = dbLoggedStatus;
-             } else if (currentFormattedDate === todayStr) {
-                calculatedStatus = ''; // Today, no valid log yet
-             } else {
-              calculatedStatus = 'Missed'; // Past date, no valid log = Missed
-             }
+            } else if (dbLoggedStatus === 'Completed') {
+                calculatedStatus = 'Completed';
+            } else if (dbLoggedStatus === 'Missed' || dbLoggedStatus === 'Skipped') {
+                calculatedStatus = 'Missed';
+            } else if (currentFormattedDate < effectiveStartDateStr) {
+                calculatedStatus = '';
+            } else if (currentFormattedDate === todayStr) {
+                calculatedStatus = ''; // Today, still Pending
+            } else {
+                calculatedStatus = 'Missed'; // Past active date with no completion = Missed
+            }
 
             calendarHistoryGrid.push({
                 date: currentFormattedDate,
@@ -439,11 +435,13 @@ const getIndividualHabitAnalytics = async (
         // ─────────────────────────────────────────────────────────
         // 📊 MODULE 3: EXTENSIVE OVERALL LIFETIME BREAKDOWN ANALYTICS CARD
         // ─────────────────────────────────────────────────────────
-        // Query completely bound past track sequences filtered safely from the user registration initialization line
         const absoluteActiveLifetimeLogs = await HabitLog.find({
             user: userId,
             userHabit: habitId,
-            date: { $gte: userRegisterDateStr, $lte: todayStr }
+            date: {
+                $gte: trackingHabit.progressRestartedAt ? effectiveStartDateStr : userRegisterDateStr,
+                $lte: todayStr,
+            },
         }).sort({ date: 1 }).lean();
 
         let totalCompletedCount = 0;
@@ -463,7 +461,19 @@ const getIndividualHabitAnalytics = async (
         // Populate database execution log metrics map
         const logsDateIndexedMap = new Map<string, any>(absoluteActiveLifetimeLogs.map((l: any) => [l.date, l.status]));
 
-        let analysisDayIterator = moment(userRegisterDateStr, 'YYYY-MM-DD');
+        // Count any completed logs prior to the latest startDate (when not restarted)
+        for (const [logDate, logStatus] of logsDateIndexedMap.entries()) {
+            if (logDate < effectiveStartDateStr && logStatus === 'Completed') {
+                totalCompletedCount++;
+                const dayNameStr = moment(logDate, 'YYYY-MM-DD').format('dddd');
+                if (weekdayFrequencyWeightMap[dayNameStr]) {
+                    weekdayFrequencyWeightMap[dayNameStr].completed += 1;
+                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
+                }
+            }
+        }
+
+        let analysisDayIterator = moment(effectiveStartDateStr, 'YYYY-MM-DD');
         const activeTodayMoment = moment(todayStr, 'YYYY-MM-DD');
 
         while (analysisDayIterator.isSameOrBefore(activeTodayMoment)) {
@@ -477,7 +487,7 @@ const getIndividualHabitAnalytics = async (
                     weekdayFrequencyWeightMap[dayNameStr].completed += 1;
                     weekdayFrequencyWeightMap[dayNameStr].total += 1;
                 }
-            } else {
+            } else if (loopDateKeyStr < todayStr || recordedStatus === 'Skipped' || recordedStatus === 'Missed') {
                 totalMissedCount++;
                 if (weekdayFrequencyWeightMap[dayNameStr]) {
                     weekdayFrequencyWeightMap[dayNameStr].total += 1;
@@ -485,6 +495,12 @@ const getIndividualHabitAnalytics = async (
             }
             analysisDayIterator.add(1, 'day');
         }
+
+        // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE
+        const totalTrackedDays = totalCompletedCount + totalMissedCount;
+        const overallCompletionRatio = totalTrackedDays > 0
+            ? Math.round((totalCompletedCount / totalTrackedDays) * 100)
+            : 0;
 
         // 🚀 CALCULATE THE CURRENT MAX STREAK DURATION INDEX
         let currentMaxStreak = 0;
@@ -543,8 +559,8 @@ const getIndividualHabitAnalytics = async (
         // Combined payload response structures compile match
         return {
             habitId: trackingHabit._id,
-            habitName: trackingHabit.name,
-            percentage: currentWeekCompletionRatio, //
+            habitName: resolvedHabitName,
+            percentage: overallCompletionRatio,
             calendarHistory: calendarHistoryGrid, // Grid status: 'Completed' | 'Missed' | ''
             breakdownCard: {
                 completedDaysCount: totalCompletedCount, //
