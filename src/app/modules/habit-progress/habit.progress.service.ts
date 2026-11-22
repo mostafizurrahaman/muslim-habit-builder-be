@@ -520,22 +520,17 @@ const getIndividualHabitAnalytics = async (
         for (let d = 1; d <= daysInMonth; d++) {
             const currentFormattedDate = `${targetMonthPrefix}-${String(d).padStart(2, '0')}`;
             const dbLoggedStatus = logStatusLookupMap.get(currentFormattedDate);
-            const isScheduled = isHabitScheduledOnDate(trackingHabit, currentFormattedDate);
 
             let calculatedStatus = 'Missed';
 
-            if (currentFormattedDate > todayStr) {
+            if (currentFormattedDate > todayStr || currentFormattedDate < userRegisterDateStr) {
                 calculatedStatus = '';
-            } else if (dbLoggedStatus === 'Completed') {
-                calculatedStatus = 'Completed';
-            } else if (dbLoggedStatus === 'Missed' || dbLoggedStatus === 'Skipped') {
-                calculatedStatus = 'Missed';
-            } else if (currentFormattedDate < effectiveStartDateStr || !isScheduled) {
-                calculatedStatus = '';
+            } else if (dbLoggedStatus === 'Completed' || dbLoggedStatus === 'Missed') {
+                calculatedStatus = dbLoggedStatus;
             } else if (currentFormattedDate === todayStr) {
-                calculatedStatus = ''; // Today, still Pending
+                calculatedStatus = ''; // Today, no valid log yet
             } else {
-                calculatedStatus = 'Missed'; // Past active scheduled date with no completion = Missed
+                calculatedStatus = 'Missed'; // Past date, no valid log = Missed
             }
 
             calendarHistoryGrid.push({
