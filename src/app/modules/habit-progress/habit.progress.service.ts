@@ -291,7 +291,7 @@ const getCombinedProgressAndAnalytics = async (
                     displayLabel: `${startOfWeek.format('D MMM')} - ${endOfWeek.format('D MMM YYYY')}`,
                 },
                 bestDisplayLabel: `Best Day: ${bestDay}`,
-                completionRatio: Math.round(weeklyRatioSum / 7),
+                completionRatio: Number((weeklyRatioSum / 7).toFixed(2)),
                 metrics: weeklyMetrics,
             };
         }
@@ -345,7 +345,7 @@ const getCombinedProgressAndAnalytics = async (
                 }
 
                 const mRatio = totalDaysInMonth > 0
-                    ? Math.min(100, Math.round(totalDailyRatio / totalDaysInMonth))
+                    ? Math.min(100, Number((totalDailyRatio / totalDaysInMonth).toFixed(2)))
                     : 0;
 
                 if (mRatio > maxMonthlyRatio) {
@@ -579,13 +579,17 @@ const getIndividualHabitAnalytics = async (
         }
 
         // ─────────────────────────────────────────────────────────
-        // 📊 MODULE 3: EXTENSIVE OVERALL LIFETIME BREAKDOWN ANALYTICS CARD
+        // 📊 MODULE 3: WEEKLY BREAKDOWN ANALYTICS CARD (Current Week)
         // ─────────────────────────────────────────────────────────
-        const absoluteActiveLifetimeLogs = await HabitLog.find({
+        const activeTodayMoment = moment(todayStr, 'YYYY-MM-DD');
+        const weekStartMoment = activeTodayMoment.clone().startOf('week');
+        const weekStartStr = weekStartMoment.format('YYYY-MM-DD');
+
+        const weeklyHabitLogs = await HabitLog.find({
             user: userId,
             userHabit: habitId,
             date: {
-                $gte: trackingHabit.progressRestartedAt ? effectiveStartDateStr : userRegisterDateStr,
+                $gte: weekStartStr,
                 $lte: todayStr,
             },
         }).sort({ date: 1 }).lean();
@@ -604,20 +608,20 @@ const getIndividualHabitAnalytics = async (
             'Sunday': { completed: 0, total: 0 }
         };
 
-        // Populate database execution log metrics map
-        const logsDateIndexedMap = new Map<string, any>(absoluteActiveLifetimeLogs.map((l: any) => [l.date, l.status]));
+        // Populate database execution log metrics map for current week
+        const logsDateIndexedMap = new Map<string, any>(weeklyHabitLogs.map((l: any) => [l.date, l.status]));
 
         if (childHabitIds.length > 0) {
-            const lifetimeChildLogs = await HabitLog.find({
+            const weeklyChildLogs = await HabitLog.find({
                 user: userId,
                 userHabit: { $in: childHabitIds },
                 date: {
-                    $gte: trackingHabit.progressRestartedAt ? effectiveStartDateStr : userRegisterDateStr,
+                    $gte: weekStartStr,
                     $lte: todayStr,
                 },
                 status: 'Completed',
             }).lean();
-            const childCompletedByDate = lifetimeChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
+            const childCompletedByDate = weeklyChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
                 if (!acc[l.date]) acc[l.date] = new Set();
                 acc[l.date].add(l.userHabit.toString());
                 return acc;
@@ -629,74 +633,49 @@ const getIndividualHabitAnalytics = async (
             }
         }
 
-        // Count any completed logs prior to the latest startDate (when not restarted)
-        for (const [logDate, logStatus] of logsDateIndexedMap.entries()) {
-            if (logDate < effectiveStartDateStr && logStatus === 'Completed') {
-                totalCompletedCount++;
-                const dayNameStr = moment(logDate, 'YYYY-MM-DD').format('dddd');
-                if (weekdayFrequencyWeightMap[dayNameStr]) {
-                    weekdayFrequencyWeightMap[dayNameStr].completed += 1;
-                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
-                }
-            }
-        }
+        // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE (for the requested month)
+        const completedInMonthCount = calendarHistoryGrid.filter((d) => d.status === 'Completed').length;
+        const overallCompletionRatio = daysInMonth > 0
+            ? Number(((completedInMonthCount / daysInMonth) * 100).toFixed(2))
+            : 0;
 
-        let analysisDayIterator = moment(effectiveStartDateStr, 'YYYY-MM-DD');
-        const activeTodayMoment = moment(todayStr, 'YYYY-MM-DD');
+        // 🚀 CALCULATE WEEKLY METRICS & MAX STREAK WITHIN CURRENT WEEK
+        let currentMaxStreak = 0;
+        let runningStreakCounter = 0;
 
-        while (analysisDayIterator.isSameOrBefore(activeTodayMoment)) {
-            const loopDateKeyStr = analysisDayIterator.format('YYYY-MM-DD');
-            const dayNameStr = analysisDayIterator.format('dddd'); 
+        for (let i = 0; i < 7; i++) {
+            const currentWeekDay = weekStartMoment.clone().add(i, 'days');
+            const loopDateKeyStr = currentWeekDay.format('YYYY-MM-DD');
+            if (loopDateKeyStr > todayStr) break;
+
+            const dayNameStr = currentWeekDay.format('dddd');
             const recordedStatus = logsDateIndexedMap.get(loopDateKeyStr);
             const isScheduled = isHabitScheduledOnDate(trackingHabit, loopDateKeyStr);
 
             if (recordedStatus === 'Completed') {
                 totalCompletedCount++;
-                if (weekdayFrequencyWeightMap[dayNameStr]) {
-                    weekdayFrequencyWeightMap[dayNameStr].completed += 1;
-                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
-                }
-            } else if (isScheduled && (loopDateKeyStr < todayStr || recordedStatus === 'Skipped' || recordedStatus === 'Missed')) {
-                totalMissedCount++;
-                if (weekdayFrequencyWeightMap[dayNameStr]) {
-                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
-                }
-            }
-            analysisDayIterator.add(1, 'day');
-        }
-
-        // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE (for the requested month)
-        const completedInMonthCount = calendarHistoryGrid.filter((d) => d.status === 'Completed').length;
-        const overallCompletionRatio = daysInMonth > 0
-            ? Math.round((completedInMonthCount / daysInMonth) * 100)
-            : 0;
-
-        // 🚀 CALCULATE THE CURRENT MAX STREAK DURATION INDEX
-        let currentMaxStreak = 0;
-        let runningStreakCounter = 0;
-
-        let streakDayIterator = moment(
-            trackingHabit.progressRestartedAt ? effectiveStartDateStr : userRegisterDateStr,
-            'YYYY-MM-DD',
-        );
-        while (streakDayIterator.isSameOrBefore(activeTodayMoment)) {
-            const streakDateKeyStr = streakDayIterator.format('YYYY-MM-DD');
-            const statusAtTargetDate = logsDateIndexedMap.get(streakDateKeyStr);
-            const isScheduled = isHabitScheduledOnDate(trackingHabit, streakDateKeyStr);
-
-            if (statusAtTargetDate === 'Completed') {
                 runningStreakCounter++;
                 if (runningStreakCounter > currentMaxStreak) {
                     currentMaxStreak = runningStreakCounter;
                 }
+                if (weekdayFrequencyWeightMap[dayNameStr]) {
+                    weekdayFrequencyWeightMap[dayNameStr].completed += 1;
+                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
+                }
             } else if (
+                loopDateKeyStr >= effectiveStartDateStr &&
                 isScheduled &&
-                (streakDateKeyStr < todayStr || statusAtTargetDate === 'Skipped' || statusAtTargetDate === 'Missed')
+                (loopDateKeyStr < todayStr || recordedStatus === 'Skipped' || recordedStatus === 'Missed')
             ) {
-                runningStreakCounter = 0; // Streak reset only on missed/skipped scheduled days
+                totalMissedCount++;
+                runningStreakCounter = 0;
+                if (weekdayFrequencyWeightMap[dayNameStr]) {
+                    weekdayFrequencyWeightMap[dayNameStr].total += 1;
+                }
             }
-            streakDayIterator.add(1, 'day');
         }
+
+        const weeklyCompletionProgress = Number(((totalCompletedCount / 7) * 100).toFixed(2));
 
         // 🚀 COMPUTE HIGHEST AND LOWEST INTERACTION DAY LABELS (Best & Quietest Days)
         let maxDayRatio = -1;
@@ -739,6 +718,7 @@ const getIndividualHabitAnalytics = async (
             percentage: overallCompletionRatio,
             calendarHistory: calendarHistoryGrid, // Grid status: 'Completed' | 'Missed' | ''
             breakdownCard: {
+                weeklyCompletionProgress,
                 completedDaysCount: totalCompletedCount, //
                 missedDaysCount: totalMissedCount,       //
                 bestStreakDays: currentMaxStreak,        // Continuous counting index indicator
