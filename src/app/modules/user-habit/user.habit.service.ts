@@ -1673,9 +1673,8 @@ const deleteCustomHabit = async (user: IUser, habitId: string) => {
 };
 
 // completed habit
-const completedHabit = async (user: IUser, habitId: string) => {
+const completeHabitForDate = async (user: IUser, habitId: string, dateStr: string, todayDateStr: string) => {
   const userId = user._id;
-  const dateStr = buildDateBasedOnTimeZone(user.timezone as string);
   // Database entry khujo ba update koro
 
   const habit = await UserHabit.findById(habitId);
@@ -1717,16 +1716,18 @@ const completedHabit = async (user: IUser, habitId: string) => {
     (async () => {
       try {
         const habitDoc = await UserHabit.findById(habitId).select('name');
+        const isToday = dateStr === todayDateStr;
+        const whenLabel = isToday ? 'today' : `on ${dateStr}`;
         // 1. Completion notification
         await notificationServices.createNotification({
           receiver: user._id,
           title: 'Habit Completed! 🎉',
-          message: `Alhamdulillah, you completed "${habitDoc?.name || 'your habit'}" today! Keep up the consistency.`,
+          message: `Alhamdulillah, you completed "${habitDoc?.name || 'your habit'}" ${whenLabel}! Keep up the consistency.`,
           notificationType: 'HABIT_REMINDER',
           meta: { habitId, status: 'completed' },
         });
 
-        // 2. Check if all active habits for today are now completed
+        // 2. Check if all active habits for the date are now completed
         const pendingCount = await HabitLog.countDocuments({
           user: userId,
           date: dateStr,
@@ -1736,8 +1737,8 @@ const completedHabit = async (user: IUser, habitId: string) => {
         if (pendingCount === 0) {
           await notificationServices.createNotification({
             receiver: user._id,
-            title: 'All Habits Completed Today! 🌟',
-            message: "Masha'Allah! You have completed all your planned habits for today. May Allah reward your dedication!",
+            title: isToday ? 'All Habits Completed Today! 🌟' : `All Habits Completed for ${dateStr}! 🌟`,
+            message: `Masha'Allah! You have completed all your planned habits ${isToday ? 'for today' : `for ${dateStr}`}. May Allah reward your dedication!`,
             notificationType: 'HABIT_REMINDER',
             meta: { date: dateStr, status: 'all_completed' },
           });
@@ -1774,6 +1775,30 @@ const completedHabit = async (user: IUser, habitId: string) => {
   }
   await log.save();
   return log;
+};
+
+const completedHabit = async (user: IUser, habitId: string) => {
+  const todayDateStr = buildDateBasedOnTimeZone(user.timezone as string);
+  return completeHabitForDate(user, habitId, todayDateStr, todayDateStr);
+};
+
+const completedPreviousHabit = async (user: IUser, habitId: string, targetDate?: string) => {
+  if (!targetDate) {
+    throw new BadRequestError('Date query parameter is required');
+  }
+  const parsed = moment(targetDate, ['YYYY-MM-DD', moment.ISO_8601], true);
+  if (!parsed.isValid()) {
+    throw new BadRequestError('Invalid date format. Expected YYYY-MM-DD');
+  }
+
+  const dateStr = parsed.format('YYYY-MM-DD');
+  const todayDateStr = buildDateBasedOnTimeZone(user.timezone as string);
+
+  if (dateStr > todayDateStr) {
+    throw new BadRequestError('You cannot complete a habit for a future date. Please select today or a previous date.');
+  }
+
+  return completeHabitForDate(user, habitId, dateStr, todayDateStr);
 };
 
 // skipped habit
@@ -1883,6 +1908,7 @@ export const userHabitService = {
   getHabitDetail,
   deleteCustomHabit,
   completedHabit,
+  completedPreviousHabit,
   skippedHabit,
   getDynamicHabitContent,
 };

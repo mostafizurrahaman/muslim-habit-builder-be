@@ -282,6 +282,7 @@ const getCombinedProgressAndAnalytics = async (
                     status: getLabelByRatio(dayStats.ratio, dayStr),
                 });
             }
+            const weeklyRatioSum = weeklyMetrics.reduce((sum, m) => sum + m.completionRatio, 0);
             analyticsGraphData = {
                 viewType: 'week',
                 range: {
@@ -290,6 +291,7 @@ const getCombinedProgressAndAnalytics = async (
                     displayLabel: `${startOfWeek.format('D MMM')} - ${endOfWeek.format('D MMM YYYY')}`,
                 },
                 bestDisplayLabel: `Best Day: ${bestDay}`,
+                completionRatio: Math.round(weeklyRatioSum / 7),
                 metrics: weeklyMetrics,
             };
         }
@@ -329,8 +331,7 @@ const getCombinedProgressAndAnalytics = async (
                 const effectiveMonthStart = firstDayOfMonthStr < userRegisterDateStr ? userRegisterDateStr : firstDayOfMonthStr;
                 const effectiveMonthEnd = lastDayOfMonthStr > todayStr ? todayStr : lastDayOfMonthStr;
 
-                let totalCompletedTasks = 0;
-                let totalScheduledTasks = 0;
+                let totalDailyRatio = 0;
                 let totalDaysWithCompletion = 0;
 
                 const dayIter = moment(effectiveMonthStart, 'YYYY-MM-DD');
@@ -338,14 +339,13 @@ const getCombinedProgressAndAnalytics = async (
                 while (dayIter.isSameOrBefore(endIter)) {
                     const dStr = dayIter.format('YYYY-MM-DD');
                     const dayStats = getDayProgressStats(dStr, yearCompletedMap[dStr] ?? new Set());
-                    totalCompletedTasks += dayStats.completedCount;
-                    totalScheduledTasks += dayStats.scheduledCount;
+                    totalDailyRatio += dayStats.ratio;
                     if (dayStats.completedCount > 0) totalDaysWithCompletion += 1;
                     dayIter.add(1, 'day');
                 }
 
-                const mRatio = totalScheduledTasks > 0
-                    ? Math.min(100, Math.round((totalCompletedTasks / totalScheduledTasks) * 100))
+                const mRatio = totalDaysInMonth > 0
+                    ? Math.min(100, Math.round(totalDailyRatio / totalDaysInMonth))
                     : 0;
 
                 if (mRatio > maxMonthlyRatio) {
@@ -665,10 +665,10 @@ const getIndividualHabitAnalytics = async (
             analysisDayIterator.add(1, 'day');
         }
 
-        // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE
-        const totalTrackedDays = totalCompletedCount + totalMissedCount;
-        const overallCompletionRatio = totalTrackedDays > 0
-            ? Math.round((totalCompletedCount / totalTrackedDays) * 100)
+        // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE (for the requested month)
+        const completedInMonthCount = calendarHistoryGrid.filter((d) => d.status === 'Completed').length;
+        const overallCompletionRatio = daysInMonth > 0
+            ? Math.round((completedInMonthCount / daysInMonth) * 100)
             : 0;
 
         // 🚀 CALCULATE THE CURRENT MAX STREAK DURATION INDEX

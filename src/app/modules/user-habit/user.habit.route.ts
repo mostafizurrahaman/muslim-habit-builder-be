@@ -77,6 +77,15 @@ userHabitRouter.patch(
 );
 
 userHabitRouter.patch(
+  '/complete/:habitId/previous',
+  authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST),
+  validateRequest({
+    params: userHabitValidationZodSchema.habitParamsZod,
+  }),
+  userHabitController.completePreviousHabitIntoDb,
+);
+
+userHabitRouter.patch(
   '/skip/:habitId',
   authMiddleware(USER_ROLE.USER, USER_ROLE.GUEST),
   validateRequest({
