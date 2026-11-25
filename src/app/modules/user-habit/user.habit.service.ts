@@ -584,25 +584,7 @@ const getTodayHabits = async (user: IUser, category?: string) => {
             };
           });
 
-    const databaseParentStatus = logMap.get(h._id.toString()) ?? 'Pending';
-
-    // ── Display status determine ───────────────────────────
-    let finalDisplayStatus: string;
-
-    if (!parentIsAdhkar && !parentIsSunnah && connectedHabits.length > 0) {
-      if (databaseParentStatus === 'Skipped') {
-        // If the parent is skipped, mark it as Skipped so it sorts lower
-        finalDisplayStatus = 'Skipped';
-      } else if (databaseParentStatus === 'Completed' && connectedHabits.every((ch) => ch.status === 'Completed')) {
-        // Parent and all children completed -> Completed
-        finalDisplayStatus = 'Completed';
-      } else {
-        // Any pending or incomplete item -> Pending
-        finalDisplayStatus = 'Pending';
-      }
-    } else {
-      finalDisplayStatus = databaseParentStatus;
-    }
+    const finalDisplayStatus = logMap.get(h._id.toString()) ?? 'Pending';
 
     const parentDisplay = resolveHabitDisplay(h);
     const parentCleanPrayer = formatPrayerCleanName(h.connectedPrayer);
@@ -873,22 +855,7 @@ const getHabitsByDate = async (user: IUser, targetDate?: string, category?: stri
             };
           });
 
-    const databaseParentStatus = logMap.get(h._id.toString()) ?? 'Pending';
-
-    // ── Display status determine ───────────────────────────
-    let finalDisplayStatus: string;
-
-    if (!parentIsAdhkar && !parentIsSunnah && connectedHabits.length > 0) {
-      if (databaseParentStatus === 'Skipped') {
-        finalDisplayStatus = 'Skipped';
-      } else if (databaseParentStatus === 'Completed' && connectedHabits.every((ch) => ch.status === 'Completed')) {
-        finalDisplayStatus = 'Completed';
-      } else {
-        finalDisplayStatus = 'Pending';
-      }
-    } else {
-      finalDisplayStatus = databaseParentStatus;
-    }
+    const finalDisplayStatus = logMap.get(h._id.toString()) ?? 'Pending';
 
     const parentDisplay = resolveHabitDisplay(h);
     const parentCleanPrayer = formatPrayerCleanName(h.connectedPrayer);

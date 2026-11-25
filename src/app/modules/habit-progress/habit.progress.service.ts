@@ -133,12 +133,8 @@ const getCombinedProgressAndAnalytics = async (
                 return acc;
             }, {});
 
-        const isParentCompletedOnDate = (h: any, completedSet: Set<string>): boolean => {
-            if (completedSet.has(h._idStr)) return true;
-            if (!Array.isArray(h.connectedHabits) || h.connectedHabits.length === 0) return false;
-            const childIds = h.connectedHabits.map((c: any) => c.userHabit?.toString()).filter(Boolean);
-            return childIds.length > 0 && childIds.every((id: string) => completedSet.has(id));
-        };
+        const isParentCompletedOnDate = (h: any, completedSet: Set<string>): boolean =>
+            completedSet.has(h._idStr);
 
         const getDayProgressStats = (dateStr: string, completedSet: Set<string>) => {
             const scheduled = activeHabits.filter(
@@ -518,10 +514,6 @@ const getIndividualHabitAnalytics = async (
                 ? userRegisterDateStr
                 : habitStartDateStr;
 
-        const childHabitIds: Types.ObjectId[] = Array.isArray(trackingHabit.connectedHabits)
-            ? trackingHabit.connectedHabits.map((c: any) => c.userHabit).filter(Boolean)
-            : [];
-
         // ─────────────────────────────────────────────────────────
         // 📊 MODULE 2: SPECIFIC SINGLE HABIT MONTHLY CALENDAR GRID
         // ─────────────────────────────────────────────────────────
@@ -532,25 +524,6 @@ const getIndividualHabitAnalytics = async (
         }).lean();
 
         const logStatusLookupMap = new Map<string, any>(monthlyHabitLogs.map((l: any) => [l.date, l.status]));
-
-        if (childHabitIds.length > 0) {
-            const monthlyChildLogs = await HabitLog.find({
-                user: userId,
-                userHabit: { $in: childHabitIds },
-                date: { $regex: `^${targetMonthPrefix}` },
-                status: 'Completed',
-            }).lean();
-            const childCompletedByDate = monthlyChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
-                if (!acc[l.date]) acc[l.date] = new Set();
-                acc[l.date].add(l.userHabit.toString());
-                return acc;
-            }, {});
-            for (const [dStr, completedSet] of Object.entries(childCompletedByDate)) {
-                if (completedSet.size >= childHabitIds.length) {
-                    logStatusLookupMap.set(dStr, 'Completed');
-                }
-            }
-        }
 
         const daysInMonth = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate(); 
         const calendarHistoryGrid = [];
@@ -610,28 +583,6 @@ const getIndividualHabitAnalytics = async (
 
         // Populate database execution log metrics map for current week
         const logsDateIndexedMap = new Map<string, any>(weeklyHabitLogs.map((l: any) => [l.date, l.status]));
-
-        if (childHabitIds.length > 0) {
-            const weeklyChildLogs = await HabitLog.find({
-                user: userId,
-                userHabit: { $in: childHabitIds },
-                date: {
-                    $gte: weekStartStr,
-                    $lte: todayStr,
-                },
-                status: 'Completed',
-            }).lean();
-            const childCompletedByDate = weeklyChildLogs.reduce((acc: Record<string, Set<string>>, l: any) => {
-                if (!acc[l.date]) acc[l.date] = new Set();
-                acc[l.date].add(l.userHabit.toString());
-                return acc;
-            }, {});
-            for (const [dStr, completedSet] of Object.entries(childCompletedByDate)) {
-                if (completedSet.size >= childHabitIds.length) {
-                    logsDateIndexedMap.set(dStr, 'Completed');
-                }
-            }
-        }
 
         // 📊 MODULE 1: OVERALL HABIT COMPLETION PERCENTAGE (for the requested month)
         const completedInMonthCount = calendarHistoryGrid.filter((d) => d.status === 'Completed').length;
